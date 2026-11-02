@@ -687,6 +687,12 @@ table.sg-t td{padding:6px 10px;vertical-align:middle}
 .inst-url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 4px; }
 .inst-url code { flex: 1 1 200px; min-width: 0; word-break: break-all; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; background: var(--sunken); }
 #install-card .row { margin-top: 10px; }
+
+/* Labos guidés : explication d’une étape non validée, et rappel que toute méthode est acceptée */
+.tl-diag { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.55; margin-top: 10px; overflow-wrap: anywhere; }
+.tl-diag > svg.ic { color: var(--warn); flex: none; margin-top: 2px; }
+.tl-any { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; color: var(--ink-3, var(--muted)); margin: 8px 0 4px; line-height: 1.45; }
+.tl-any > svg.ic { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--ok); }
 </style>
 
 </head>
@@ -9486,11 +9492,18 @@ function termCheck() {
   if (TR && TR.final) { termFinalSave(); return false; }
   const sc = SCEN[TR.id]; let advanced = false;
   while (TR.step < sc.steps.length) {
-    let ok = false; try { ok = !!sc.steps[TR.step].check(TR.world, TR.last); } catch (e) { ok = false; }
+    const st0 = sc.steps[TR.step]; let ok = false; try { ok = !!st0.check(TR.world, TR.last || {}) || !!(st0.skipIf && st0.skipIf(TR.world)); } catch (e) { ok = false; }
     if (!ok) break;
     TR.lastOkStep = TR.step; TR.step++; advanced = true;
   }
-  if (advanced) { const fin = TR.step >= sc.steps.length; if (fin) TR.done = true; termSave(fin); }
+  if (advanced) { const fin = TR.step >= sc.steps.length; if (fin) TR.done = true; termSave(fin); TR.diagMsg = null; }
+  else {
+    /* Étape non validée : si elle sait l’expliquer (valeur effective, mauvais compte, ordre…), on le dit. */
+    const st = sc.steps[TR.step]; let m = null;
+    if (st && st.diag) { try { m = st.diag(TR.world, TR.last) || null; } catch (e) { m = null; } }
+    if (m && m !== TR.diagMsg) { const K = TERM_KINDS[sc.kind]; termSys(K.curId(TR.world), '[Trame] Pas encore validé : ' + m); }
+    TR.diagMsg = m;
+  }
   return advanced;
 }
 
@@ -9516,7 +9529,7 @@ function termSubmit(raw) {
   (r.out || []).forEach((s) => L2.push({ k: /^%|^bash: |Permission denied|Permission non accordée|command not found|^E: |^sudo: |^ERROR|introuvable/.test(s) ? 'err' : 'out', s }));
   if (L2.length > 600) L2.splice(0, L2.length - 600);
   const shown = answering ? (TR.cmdLine || '') : raw.trim();
-  TR.last = Object.assign({ dev: devId, line: shown }, answering && !secret ? { reply: raw.trim() } : {}, r.info || {});
+  TR.last = Object.assign({ dev: devId, line: shown, out: (r.out || []).slice(0, 400) }, answering && !secret ? { reply: raw.trim() } : {}, r.info || {});
   if (r.info && (r.info.ex || r.info.err)) TR.ex = { line: shown, info: r.info, prompt };
   if (r.info && r.info.nano) { openNano(r.info.nano); }
   if (r.info && r.info.clear) TR.lines[devId] = [];
@@ -9587,7 +9600,7 @@ function missionHTML() {
   const cur = sc.steps[s];
   return `<div class="tl-prog"><b>Étape ${s + 1}/${n}</b><div class="bar"><i style="width:${Math.round(s / n * 100)}%"></i></div></div>
     ${okWhy}
-    <div class="tl-step"><h3>${esc(cur.t)}</h3>${cur.dev ? `<span class="chip">${ic('terminal')}sur ${esc(cur.dev)}</span>` : ''}<div class="tl-goal">${cur.goal}</div>
+    <div class="tl-step"><h3>${esc(cur.t)}</h3>${cur.dev ? `<span class="chip">${ic('terminal')}sur ${esc(cur.dev)}</span>` : ''}<div class="tl-goal">${cur.goal}</div>${TR.diagMsg ? `<div class="tl-diag">${ic('alert')}<div><b>Pas encore validé.</b> ${esc(TR.diagMsg)}</div></div>` : ''}<p class="tl-any">${ic('check')}La commande indiquée est un exemple : toute autre façon d’obtenir le même résultat est acceptée.</p>
       <div class="tl-hint" id="tl-hint" hidden>${hintHTML(cur)}</div>
       <button type="button" class="btn btn-ghost btn-sm" data-act="term.hint" id="tl-hint-btn">${ic('bulb')}Indice</button></div>
     ${stepsList()}`;
@@ -9940,7 +9953,7 @@ scen({
     { t: 'Créer le VLAN 20', dev: 'SW1', goal: '<p><code>vlan 20</code> puis <code>name ETUDIANTS</code>.</p>', hint: ['vlan 20', 'name ETUDIANTS'], check: (w) => (w.devs.SW1.cfg.vlans[20] || {}).name === 'ETUDIANTS', why: 'Deux VLAN prêts à recevoir des ports.' },
     { t: 'Ports de l’administration', dev: 'SW1', goal: '<p>Place Fa0/1 et Fa0/2 dans le VLAN 10 :</p><p><code>interface range fa0/1 - 2</code> → <code>switchport mode access</code> → <code>switchport access vlan 10</code></p>', hint: ['interface range fa0/1 - 2', 'switchport mode access', 'switchport access vlan 10'], check: (w) => ['FastEthernet0/1', 'FastEthernet0/2'].every((p) => sport(w, 'SW1', p).vlan === 10 && sport(w, 'SW1', p).mode === 'access'), why: 'Ports fixés en accès : ils n’appartiennent qu’au VLAN 10 et ne négocieront jamais de trunk.' },
     { t: 'Ports des étudiants', dev: 'SW1', goal: '<p>Même chose pour Fa0/3 et Fa0/4 dans le VLAN 20.</p>', hint: ['interface range fa0/3 - 4', 'switchport mode access', 'switchport access vlan 20'], check: (w) => ['FastEthernet0/3', 'FastEthernet0/4'].every((p) => sport(w, 'SW1', p).vlan === 20 && sport(w, 'SW1', p).mode === 'access'), why: 'Chaque groupe a désormais son propre domaine de diffusion.' },
-    { t: 'Vérifier', dev: 'SW1', goal: '<p>Affiche les VLAN : <code>do show vlan brief</code> (ou <code>end</code> puis <code>show vlan brief</code>).</p>', hint: 'do show vlan brief', check: (w, l) => keyIs(l, 'show vlan brief'), why: 'Fa0/1-2 sont dans ADMIN, Fa0/3-4 dans ETUDIANTS ; le reste est dans le VLAN 1.' },
+    { t: 'Vérifier', dev: 'SW1', goal: '<p>Affiche les VLAN : <code>do show vlan brief</code> (ou <code>end</code> puis <code>show vlan brief</code>).</p>', hint: 'do show vlan brief', check: (w, l) => keyIs(l, 'show vlan brief') || keyIs(l, 'show vlan'), why: 'Fa0/1-2 sont dans ADMIN, Fa0/3-4 dans ETUDIANTS ; le reste est dans le VLAN 1.' },
     { t: 'Même VLAN : ça passe', dev: 'PC1', goal: '<p>Depuis PC1, <code>ping 192.168.1.12</code> (PC2, même VLAN).</p>', hint: 'ping 192.168.1.12', check: (w, l) => { const p = pingRes(l, 'PC1', '192.168.1.12'); return !!(p && p.ok); }, why: 'PC1 et PC2 partagent le VLAN 10.' },
     { t: 'VLAN différents : isolés', dev: 'PC1', goal: '<p>Depuis PC1, <code>ping 192.168.1.13</code> (PC3, VLAN 20).</p>', hint: 'ping 192.168.1.13', check: (w, l) => { const p = pingRes(l, 'PC1', '192.168.1.13'); return !!(p && !p.ok); }, why: 'Même adresse réseau, mais VLAN différents : le commutateur ne transmet plus entre eux. En pratique, on donne un sous-réseau distinct à chaque VLAN, et on route entre eux sous contrôle.' },
     { t: 'Désactiver les ports libres', dev: 'SW1', goal: '<p>Sur SW1, éteins les ports inutilisés : <code>interface range fa0/5 - 24</code> → <code>shutdown</code>.</p>', hint: ['interface range fa0/5 - 24', 'shutdown'], check: (w) => { for (let i = 5; i <= 24; i++) if (!sport(w, 'SW1', 'FastEthernet0/' + i).shut) return false; return true; }, why: 'Un câble branché au hasard dans une prise libre ne donne plus accès à rien.' },
@@ -10094,7 +10107,7 @@ scen({
     { t: 'HTTPS passe', dev: 'PC-E', goal: '<p>Depuis PC-E : <code>curl https://192.168.30.10</code>.</p>', hint: 'curl https://192.168.30.10', check: (w, l) => !!(l && l.conn && l.conn.proto === 'web' && l.conn.ok && l.dev === 'PC-E'), why: 'TCP 443 vers le serveur correspond à la première règle permit.' },
     { t: 'SSH est refusé', dev: 'PC-E', goal: '<p>Depuis PC-E : <code>ssh -l admin 192.168.30.10</code>.</p>', hint: 'ssh -l admin 192.168.30.10', check: (w, l) => !!(l && l.conn && l.conn.proto === 'ssh' && !l.conn.ok && l.dev === 'PC-E'), why: 'Le serveur écoute bien en SSH, mais l’ACL l’interdit aux étudiants.' },
     { t: 'Les admins ne sont pas touchés', dev: 'PC-A', goal: '<p>Depuis <b>PC-A</b> : <code>ping 192.168.30.10</code>.</p>', hint: 'ping 192.168.30.10', check: (w, l) => { const p = pingRes(l, 'PC-A', '192.168.30.10'); return !!(p && p.ok); }, why: 'L’ACL n’est appliquée qu’à l’entrée du VLAN 20.' },
-    { t: 'Lire les compteurs', dev: 'R1', goal: '<p>Sur R1 : <code>do show access-lists</code>.</p>', hint: 'do show access-lists', check: (w, l) => keyIs(l, 'show access-lists'), why: 'Les « matches » montrent quelles règles ont servi : précieux pour vérifier et dépanner.' },
+    { t: 'Lire les compteurs', dev: 'R1', goal: '<p>Sur R1 : <code>do show access-lists</code>.</p>', hint: 'do show access-lists', check: (w, l) => keyIs(l, 'show access-lists') || keyIs(l, 'show ip access-lists'), why: 'Les « matches » montrent quelles règles ont servi : précieux pour vérifier et dépanner.' },
   ],
   outro: 'Ordre des règles, deny implicite, placement près de la source : tu as appliqué les trois principes des ACL étendues.',
 });
@@ -10138,10 +10151,10 @@ scen({
     { t: 'Port en mode accès', dev: 'SW1', goal: '<p>Sur SW1 : <code>conf t</code>, <code>interface fa0/1</code>, <code>switchport mode access</code>. La sécurité de port l’exige.</p>', hint: ['conf t', 'interface fa0/1', 'switchport mode access'], check: (w) => sport(w, 'SW1', 'FastEthernet0/1').mode === 'access', why: 'Le port ne négociera jamais de trunk.' },
     { t: 'Activer la sécurité', dev: 'SW1', goal: '<p><code>switchport port-security</code><br><code>switchport port-security maximum 1</code><br><code>switchport port-security mac-address sticky</code><br><code>switchport port-security violation shutdown</code></p>', hint: ['switchport port-security', 'switchport port-security maximum 1', 'switchport port-security mac-address sticky', 'switchport port-security violation shutdown'], check: (w) => { const ps = sport(w, 'SW1', 'FastEthernet0/1').ps; return !!ps && !ps.off && ps.max === 1 && ps.sticky && (ps.viol || 'shutdown') === 'shutdown'; }, why: 'Une seule MAC, apprise automatiquement et retenue ; tout autre appareil coupe le port.' },
     { t: 'Apprendre la MAC de PC1', dev: 'PC1', goal: '<p>Depuis PC1 : <code>ping 192.168.1.12</code> — le commutateur apprend sa MAC au passage.</p>', hint: 'ping 192.168.1.12', check: (w, l) => { const p = pingRes(l, 'PC1', '192.168.1.12'); return !!(p && p.ok) && (sport(w, 'SW1', 'FastEthernet0/1').ps.macs || []).length === 1; }, why: 'La MAC de PC1 est maintenant « collée » au port.' },
-    { t: 'Vérifier', dev: 'SW1', goal: '<p>Sur SW1 : <code>do show port-security interface fa0/1</code>.</p>', hint: 'do show port-security interface fa0/1', check: (w, l) => keyIs(l, 'show port-security interface <IF:ifn>') || (l && /port-security int/.test(l.line || '')), why: 'Port Status : Secure-up, 1 adresse sticky.' },
+    { t: 'Vérifier', dev: 'SW1', goal: '<p>Sur SW1 : <code>do show port-security interface fa0/1</code>.</p>', hint: 'do show port-security interface fa0/1', check: (w, l) => keyIs(l, 'show port-security interface <IF:ifn>') || keyIs(l, 'show port-security') || (l && /port-security/.test(l.line || '')), why: 'Port Status : Secure-up, 1 adresse sticky.' },
     { t: 'Brancher un intrus', dev: 'SW1', goal: '<p>Clique sur le bouton <b>Brancher l’intrus sur Fa0/1</b> au-dessus de la topologie.</p>', check: (w, l) => !!(l && l.action === 'rogue'), why: 'Quelqu’un a débranché PC1 pour y brancher son portable.' },
     { t: 'L’intrus essaie', dev: 'INTRUS', goal: '<p>Sur <b>INTRUS</b> : <code>ping 192.168.1.12</code>.</p>', hint: 'ping 192.168.1.12', check: (w) => !!(w.devs.SW1.rt.err && w.devs.SW1.rt.err['FastEthernet0/1']), why: 'MAC inconnue : violation. Le port passe en err-disabled et le commutateur journalise l’adresse fautive.' },
-    { t: 'Constater côté commutateur', dev: 'SW1', goal: '<p>Sur SW1 : <code>do show interfaces status</code>.</p>', hint: 'do show interfaces status', check: (w, l) => keyIs(l, 'show interfaces status'), why: 'Fa0/1 apparaît en « err-disabled ».' },
+    { t: 'Constater côté commutateur', dev: 'SW1', goal: '<p>Sur SW1 : <code>do show interfaces status</code>.</p>', hint: 'do show interfaces status', check: (w, l) => keyIs(l, 'show interfaces status') || keyIs(l, 'show interfaces <IF:ifn>') || keyIs(l, 'show interfaces'), why: 'Fa0/1 apparaît en « err-disabled ».' },
     { t: 'Rebrancher le bon poste', dev: 'SW1', goal: '<p>Clique sur <b>Rebrancher PC1</b>.</p>', check: (w, l) => !!(l && l.action === 'restore'), why: 'Le port reste coupé tant qu’un administrateur ne l’a pas réactivé.' },
     { t: 'Réactiver le port', dev: 'SW1', goal: '<p>Dans <code>interface fa0/1</code> : <code>shutdown</code> puis <code>no shutdown</code>.</p>', hint: ['interface fa0/1', 'shutdown', 'no shutdown'], check: (w) => !(w.devs.SW1.rt.err || {})['FastEthernet0/1'] && !sport(w, 'SW1', 'FastEthernet0/1').shut && w.links.some((L) => L[1] === 'FastEthernet0/1' && L[2] === 'PC1'), why: 'Le cycle shutdown / no shutdown remet un port err-disabled en service.' },
     { t: 'PC1 retrouve le réseau', dev: 'PC1', goal: '<p>Depuis PC1 : <code>ping 192.168.1.12</code>.</p>', hint: 'ping 192.168.1.12', check: (w, l) => { const p = pingRes(l, 'PC1', '192.168.1.12'); return !!(p && p.ok); }, why: 'Sa MAC étant mémorisée, il est accepté.' },
@@ -10187,7 +10200,7 @@ function lxBaseFs() {
       hostname: fF(0o644, 0, 0, 'trame\n'), hosts: fF(0o644, 0, 0, '127.0.0.1 localhost\n127.0.1.1 trame\n'),
       'resolv.conf': fF(0o644, 0, 0, 'nameserver 192.168.1.1\n'),
       'os-release': fF(0o644, 0, 0, 'PRETTY_NAME="Ubuntu 24.04 LTS"\nNAME="Ubuntu"\nVERSION_ID="24.04"\n'),
-      ssh: fD(0o755, 0, 0, { sshd_config: fF(0o644, 0, 0, '# Configuration du serveur SSH\nPort 22\nPermitRootLogin yes\nPasswordAuthentication yes\nPubkeyAuthentication yes\n#MaxAuthTries 6\nX11Forwarding yes\n') }),
+      ssh: fD(0o755, 0, 0, { sshd_config: fF(0o644, 0, 0, '# Configuration du serveur SSH\n# Les fichiers de sshd_config.d sont lus en premier : ils passent avant la suite.\nInclude /etc/ssh/sshd_config.d/*.conf\n\nPort 22\nPermitRootLogin yes\nPasswordAuthentication yes\nPubkeyAuthentication yes\n#MaxAuthTries 6\nX11Forwarding yes\n'), 'sshd_config.d': fD(0o755, 0, 0, {}) }),
       netplan: fD(0o755, 0, 0, { '01-netcfg.yaml': fF(0o600, 0, 0, 'network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n') }),
       sudoers: fF(0o440, 0, 0, '%sudo   ALL=(ALL:ALL) ALL\n'),
     }),
@@ -10217,7 +10230,7 @@ function lxWorld(opts = {}) {
     cron: { etudiant: '', root: '' }, sshApplied: null, hist: [], code: 0, pend: null,
   };
   if (opts.setup) opts.setup(w);
-  w.sshApplied = lxSshdParse(lxReadRaw(w, '/etc/ssh/sshd_config') || '');
+  w.sshApplied = lxSshdEffective(w);
   return w;
 }
 
@@ -10254,7 +10267,7 @@ function lxReadRaw(w, abs) { const n = lxNode(w, abs); return n && n.t === 'f' ?
 function lxGenerated(w, abs) {
   if (abs === '/etc/passwd') return Object.entries(w.users).map(([n, u]) => `${n}:x:${u.uid}:${u.gid}:${u.gecos || ''}:${u.home}:${u.shell}`).join('\n') + '\n';
   if (abs === '/etc/group') return Object.entries(w.gids).map(([n, g]) => `${n}:x:${g}:${Object.keys(w.users).filter((un) => w.users[un].groups.includes(n) && w.users[un].gid !== g).join(',')}`).join('\n') + '\n';
-  if (abs === '/etc/shadow') return Object.entries(w.users).map(([n, u]) => `${n}:${u.pw ? '$6$' + sha256(n).slice(0, 12) + '$' + sha256('pw' + n).slice(0, 43) : '*'}:20000:0:99999:7:::`).join('\n') + '\n';
+  if (abs === '/etc/shadow') return Object.entries(w.users).map(([n, u]) => `${n}:${u.locked ? '!' : ''}${u.pw ? '$6$' + sha256(n).slice(0, 12) + '$' + sha256('pw' + n).slice(0, 43) : '*'}:20000:0:99999:7:::`).join('\n') + '\n';
   return '';
 }
 
@@ -10308,6 +10321,41 @@ function lxSshdErrors(txt) {
   }
   return null;
 }
+/* Configuration effective : le fichier principal avec ses « Include » développés à leur place, comme
+   sshd (Ubuntu commence par « Include /etc/ssh/sshd_config.d/*.conf » : ces fichiers passent avant la suite). */
+const LX_SSHD_INC = /^\s*include\s*(?:=\s*|\s+)(.+?)\s*(?:#.*)?$/i;
+function lxSshdIncludes(w, spec) {
+  const out = [];
+  spec.split(/\s+/).filter(Boolean).forEach((p) => {
+    const abs = p.startsWith('/') ? p : '/etc/ssh/' + p; const i = abs.lastIndexOf('/'); const dir = abs.slice(0, i) || '/'; const base = abs.slice(i + 1);
+    if (!/[*?]/.test(base)) { const n = lxNode(w, abs); if (n && n.t === 'f') out.push(abs); return; }
+    const d = lxNode(w, dir); if (!d || d.t !== 'd') return;
+    const re = new RegExp('^' + base.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+    Object.keys(d.c).filter((k) => re.test(k) && d.c[k].t === 'f').sort().forEach((k) => out.push(dir + '/' + k));
+  });
+  return out;
+}
+/* Fichiers lus par sshd, dans l’ordre : [{ path, txt }] (les lignes Include sont remplacées par le contenu inclus). */
+function lxSshdSources(w) {
+  const files = [];
+  const visit = (path, depth) => { const txt = lxReadRaw(w, path); if (txt == null || depth > 3) return; files.push({ path, txt }); txt.split('\n').forEach((l) => { const m = LX_SSHD_INC.exec(l); if (m) lxSshdIncludes(w, m[1]).forEach((f) => visit(f, depth + 1)); }); };
+  visit('/etc/ssh/sshd_config', 0);
+  return files;
+}
+function lxSshdText(w) {
+  const expand = (path, depth) => { const txt = lxReadRaw(w, path); if (txt == null) return ''; return txt.split('\n').map((l) => { const m = LX_SSHD_INC.exec(l); if (!m || depth > 3) return l; return '# ' + l.trim() + '\n' + lxSshdIncludes(w, m[1]).map((f) => expand(f, depth + 1)).join('\n'); }).join('\n'); };
+  return expand('/etc/ssh/sshd_config', 0);
+}
+function lxSshdEffective(w) { return lxSshdParse(lxSshdText(w)); }
+/* Première erreur de syntaxe, avec le fichier concerné : { path, n, msg } */
+function lxSshdErrorsW(w) { for (const f of lxSshdSources(w)) { const e = lxSshdErrors(f.txt); if (e) return Object.assign({ path: f.path }, e); } return null; }
+/* D’où vient la valeur retenue pour un mot-clé : { path, n, line } de la première occurrence, ou null (valeur par défaut). */
+function lxSshdOrigin(w, key) {
+  const k = key.toLowerCase(); let found = null; let stop = false;
+  const visit = (path, depth) => { const txt = lxReadRaw(w, path); if (txt == null || depth > 3) return; txt.split('\n').forEach((l, i) => { if (found || stop) return; const m = LX_SSHD_INC.exec(l); if (m) { lxSshdIncludes(w, m[1]).forEach((f) => visit(f, depth + 1)); return; } const e = lxSshdLines(l)[0]; if (!e) return; if (e.canon === 'Match') { stop = true; return; } if (e.key.toLowerCase() === k) found = { path, n: i + 1, line: l.trim() }; }); };
+  visit('/etc/ssh/sshd_config', 0);
+  return found;
+}
 function lxPrompt(w) {
   if (w.pend) return w.pend.prompt;
   const u = w.user; const h = w.host; const sym = u === 'root' ? '#' : '$';
@@ -10317,16 +10365,54 @@ function lxPrompt(w) {
 
 /* ---------- Analyse d’une ligne (tubes, redirections, guillemets) ---------- */
 function lxSplit(s) {
-  const out = []; let cur = '', q = null, had = false;
+  const out = []; const quoted = []; let cur = '', q = null, had = false;
   for (let i = 0; i < s.length; i++) { const c = s[i];
     if (q) { if (c === q) q = null; else cur += q === "'" && c === '$' ? '\u0001' : c; continue; }
     if (c === '"' || c === "'") { q = c; had = true; continue; }
-    if (c === '\\' && i + 1 < s.length) { cur += s[++i]; continue; }
-    if (/\s/.test(c)) { if (cur || had) { out.push(cur); cur = ''; had = false; } continue; }
+    if (c === '\\' && i + 1 < s.length) { cur += s[++i]; had = true; continue; }
+    if (/\s/.test(c)) { if (cur || had) { out.push(cur); quoted.push(had); cur = ''; had = false; } continue; }
     cur += c;
   }
-  if (cur || had) out.push(cur);
+  if (cur || had) { out.push(cur); quoted.push(had); }
+  out.quoted = quoted;
   return out;
+}
+/* Découpe au niveau supérieur, hors guillemets : mode « chain » sur ; && || (enchaînements),
+   mode « pipe » sur | (tubes). */
+function lxTopSplit(raw, mode) {
+  const parts = []; let cur = '', q = null;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (q) { cur += c; if (c === q) q = null; continue; }
+    if (c === '"' || c === "'") { q = c; cur += c; continue; }
+    if (c === '\\' && i + 1 < raw.length) { cur += c + raw[++i]; continue; }
+    if (mode === 'chain') {
+      if (c === ';') { parts.push({ s: cur, op: ';' }); cur = ''; continue; }
+      if ((c === '&' && raw[i + 1] === '&') || (c === '|' && raw[i + 1] === '|')) { parts.push({ s: cur, op: c + c }); cur = ''; i++; continue; }
+    } else if (c === '|') { parts.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  parts.push(mode === 'chain' ? { s: cur, op: null } : cur);
+  return parts;
+}
+/* Jokers * et ? hors guillemets, comme bash : ~/.ssh/* → la liste des fichiers ; rien ne correspond → mot laissé tel quel. */
+function lxGlob(w, pat) {
+  const home = lxHome(w); let base, rest;
+  if (pat.startsWith('/')) { base = ''; rest = pat.slice(1); } else if (pat === '~' || pat.startsWith('~/')) { base = home; rest = pat.slice(2); } else { base = null; rest = pat; }
+  const segs = rest.split('/'); let acc = [{ shown: pat.startsWith('/') ? '' : pat.startsWith('~') ? '~' : null, abs: base === null ? w.cwd : (base || '') }];
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i]; const last = i === segs.length - 1; const next = [];
+    if (seg === '') { if (last) acc = acc.map((x) => ({ shown: (x.shown == null ? '' : x.shown) + '/', abs: x.abs })); continue; }
+    for (const x of acc) {
+      const join = (name) => ({ shown: x.shown == null ? name : x.shown + '/' + name, abs: (x.abs === '/' ? '' : x.abs) + '/' + name });
+      if (!/[*?]/.test(seg)) { const j = join(seg); if (lxNode(w, j.abs || '/')) next.push(j); continue; }
+      const d = lxNode(w, x.abs || '/'); if (!d || d.t !== 'd' || !lxCan(w, d, lxCurUid(w), 4)) continue;
+      const re = new RegExp('^' + seg.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+      Object.keys(d.c).sort().filter((k) => re.test(k) && (seg.startsWith('.') || !k.startsWith('.'))).forEach((k) => next.push(join(k)));
+    }
+    acc = next; if (!acc.length) return [pat];
+  }
+  return acc.map((x) => x.shown);
 }
 function lxExpand(w, tok) {
   return tok.replace(/\$\(date \+%F\)/g, localISO()).replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (m, n) => (w.env[n] != null ? w.env[n] : '')).replace(/^~(?=$|\/)/, lxHome(w)).replace(/\u0001/g, '$');
@@ -10334,18 +10420,50 @@ function lxExpand(w, tok) {
 
 /* ---------- Boucle principale ---------- */
 function lxExec(w, line) {
+  if (w.pend) { const out = []; const info = { key: null, ex: null, ok: true }; const p = w.pend; w.pend = null; p.on(line, out, info); return { out, info }; }
+  const raw = line.replace(/\s+$/, ''); if (!raw.trim()) return { out: [], info: { key: null, ex: null, ok: true } };
+  const chain = lxTopSplit(raw, 'chain');
+  let res;
+  if (chain.length === 1) res = lxExecOne(w, raw);
+  else { const out = []; const info = { key: null, ex: null, ok: true, parts: [] }; lxChainRun(w, chain, 0, true, out, info); res = { out, info }; }
+  w.hist.push(raw);
+  return res;
+}
+/* Enchaînement « a && b », « a || b », « a ; b ». Si une commande ouvre une invite (mot de passe sudo,
+   confirmation…), la suite reprend automatiquement après la réponse. */
+function lxChainRun(w, chain, i, status, out, info) {
+  if (!info.parts) info.parts = [];
+  for (; i < chain.length; i++) {
+    const op = i > 0 ? chain[i - 1].op : null; const s = chain[i].s.trim(); if (!s) continue;
+    if (op === '&&' && !status) continue;
+    if (op === '||' && status) continue;
+    const r = lxExecOne(w, s); out.push(...r.out);
+    const ok = info.ok !== false && (!r.info || r.info.ok !== false); Object.assign(info, r.info || {}); info.ok = ok; info.parts.push(s);
+    status = !r.info || r.info.ok !== false;
+    if (w.pend) { const at = i; lxDefer(w, (o2, inf2) => lxChainRun(w, chain, at + 1, inf2.ok !== false, o2, inf2)); return; }
+  }
+}
+function lxDefer(w, cont) {
+  const p = w.pend; if (!p) return; const on = p.on;
+  p.on = (v, out, inf) => { on(v, out, inf); if (w.pend) lxDefer(w, cont); else cont(out, inf); };
+}
+function lxExecOne(w, raw) {
   const out = []; const info = { key: null, ex: null, ok: true };
-  if (w.pend) { const p = w.pend; w.pend = null; p.on(line, out, info); return { out, info }; }
-  const raw = line.replace(/\s+$/, ''); if (!raw.trim()) return { out, info };
-  // pipeline + redirection
-  const segs = raw.split('|').map((s) => s.trim());
+  const segs = lxTopSplit(raw, 'pipe').map((s) => s.trim());
   let redir = null; const lastSeg = segs[segs.length - 1];
-  segs[segs.length - 1] = lastSeg.replace(/\s+2>\s*\/dev\/null/, '');
+  segs[segs.length - 1] = lastSeg.replace(/\s+2>\s*\/dev\/null/, '').replace(/\s+2>&1/, '');
   const rm = /^(.*?)\s*(>>?)\s*([^\s>]+)\s*$/.exec(segs[segs.length - 1]);
-  if (rm && !/'[^']*>[^']*'/.test(segs[segs.length - 1])) { segs[segs.length - 1] = rm[1]; redir = { app: rm[2] === '>>', path: rm[3] }; }
+  if (rm && !/'[^']*>[^']*'/.test(segs[segs.length - 1]) && !/"[^"]*>[^"]*"$/.test(segs[segs.length - 1])) { segs[segs.length - 1] = rm[1]; redir = { app: rm[2] === '>>', path: rm[3] }; }
+  if (redir) {
+    /* Comme bash : la redirection est ouverte AVANT de lancer la commande (et par ton shell, pas par sudo). */
+    const pre = lxWriteCheck(w, redir.path);
+    if (pre) { const viaSudo = segs.some((x) => /^sudo\s/.test(x)); return { out: [pre], info: { key: (lxSplit(segs[0])[0] || null), ok: false, ex: viaSudo ? 'La redirection > est faite par TON shell, avant même que sudo ne s’exécute : elle n’a donc pas les droits root. Pour écrire dans un fichier système : echo "…" | sudo tee -a FICHIER (ou ouvre un shell root avec sudo -i).' : 'Tu n’as pas le droit d’écrire ce fichier.' } }; }
+  }
   let input = null; let res = { out: [], info: {} };
   for (let i = 0; i < segs.length; i++) {
-    const toks = lxSplit(segs[i]).map((t) => lxExpand(w, t)); if (!toks.length) continue;
+    const sp = lxSplit(segs[i]); const q = sp.quoted || [];
+    const toks = []; sp.forEach((t, k) => { const e = lxExpand(w, t); if (k > 0 && !q[k] && /[*?]/.test(e)) toks.push(...lxGlob(w, e)); else toks.push(e); });
+    if (!toks.length) continue;
     res = lxRun(w, toks, input, i === 0);
     if (res.info && res.info.key && i === segs.length - 1) { info.key = res.info.key; info.ex = res.info.ex; if (res.info.err) info.err = res.info.err; if (res.info.nano) info.nano = res.info.nano; Object.assign(info, res.info); }
     input = (res.out || []).join('\n');
@@ -10354,10 +10472,10 @@ function lxExec(w, line) {
   let finalOut = res.out || [];
   if (redir) {
     const err = lxWrite(w, redir.path, finalOut.join('\n') + (finalOut.length ? '\n' : ''), redir.app);
-    if (err) { out.push(err); info.ok = false; } finalOut = [];
+    if (err) { out.push(err); info.ok = false; if (/^sudo\s/.test(segs[segs.length - 1]) && /Permission/.test(err)) info.ex = 'La redirection > est faite par TON shell, pas par sudo : elle n’a donc pas les droits root. Pour écrire dans un fichier système : echo "…" | sudo tee -a FICHIER.'; }
+    finalOut = [];
   }
   out.push(...finalOut);
-  w.hist.push(raw);
   return { out, info };
 }
 
@@ -10368,6 +10486,9 @@ function lxcmd(names, ex, fn) { (Array.isArray(names) ? names : [names]).forEach
 function lxRun(w, toks, stdin, first) {
   const cmd = toks[0]; const args = toks.slice(1); const info = { key: cmd, ex: null, ok: true };
   if (cmd === 'sudo') return lxSudo(w, args, stdin);
+  if (cmd === 'll') return lxRun(w, ['ls', '-alF'].concat(args), stdin, first);
+  if (cmd === 'la') return lxRun(w, ['ls', '-A'].concat(args), stdin, first);
+  if (cmd === 'less' || cmd === 'more' || cmd === 'view') { const r = lxRun(w, ['cat'].concat(args.filter((x) => !x.startsWith('-'))), stdin, first); if (r.info) { r.info.key = cmd; r.info.ex = `${cmd} affiche un fichier page par page (q pour quitter). Ici, tout le fichier s’affiche d’un coup.`; } return r; }
   let c = LX_CMDS[cmd];
   if (!c) { const bin = /^\/(?:usr\/)?s?bin\/([\w.-]+)$/.exec(cmd); if (bin && LX_CMDS[bin[1]] && !lxNode(w, cmd)) c = LX_CMDS[bin[1]]; }
   if (!c) {
@@ -10391,9 +10512,10 @@ lxcmd('cd', 'Change de dossier. « cd » seul revient au dossier personnel, « c
 });
 lxcmd('ls', 'Liste le contenu d’un dossier. -l pour le format long (droits, propriétaire, taille), -a pour les fichiers cachés.', (w, a, info) => {
   const opts = a.filter((x) => x.startsWith('-')).join(''); const targets = a.filter((x) => !x.startsWith('-'));
-  const long = opts.includes('l'); const all = opts.includes('a'); const abs = lxResolve(targets[0] || '.', w.cwd, lxHome(w));
-  const n = lxNode(w, abs); if (!n) return lxErr(info, `ls: ${targets[0]}: Aucun fichier ou dossier de ce type`);
-  if (n.t !== 'd') return long ? [lxLongLine(w, targets[0] || abs, n)] : [targets[0] || abs];
+  const long = opts.includes('l'); const all = /[aA]/.test(opts); const abs = lxResolve(targets[0] || '.', w.cwd, lxHome(w));
+  if (targets.length > 1) { const fl = a.filter((x) => x.startsWith('-')); const isDir = (t) => { const nd = lxNode(w, lxResolve(t, w.cwd, lxHome(w))); return !!nd && nd.t === 'd' && !opts.includes('d'); }; const files = targets.filter((t) => !isDir(t)); const dirs = targets.filter(isDir); const out = []; const fo = files.flatMap((t) => LX_CMDS.ls.fn(w, fl.concat([t]), info)); if (fo.length) out.push(...(long ? fo : [fo.join('  ')])); dirs.forEach((t) => { if (out.length) out.push(''); out.push(t + ' :', ...LX_CMDS.ls.fn(w, fl.concat([t]), info)); }); return out; }
+  const n = lxNode(w, abs); if (!n) return lxErr(info, `ls: impossible d’accéder à '${targets[0]}': Aucun fichier ou dossier de ce type`);
+  if (n.t !== 'd' || opts.includes('d')) return long ? [lxLongLine(w, targets[0] || '.', n)] : [targets[0] || '.'];
   if (!lxCan(w, n, lxCurUid(w), 4)) return lxErr(info, `ls: ${targets[0] || '.'}: Permission non accordée`);
   let names = Object.keys(n.c).sort((x, y) => x.replace(/^\./, '').localeCompare(y.replace(/^\./, ''), 'fr'));
   if (all) names = ['.', '..'].concat(names);
@@ -10411,9 +10533,16 @@ lxcmd('tree', 'Affiche l’arborescence d’un dossier. -L limite la profondeur.
 });
 
 /* ---------- Lecture / écriture de fichiers ---------- */
+function lxWriteCheck(w, p) {
+  if (p === '/dev/null') return null;
+  const abs = lxResolve(p, w.cwd, lxHome(w)); const { dir, name } = lxParent(w, abs); const uid = lxCurUid(w);
+  if (!dir || dir.t !== 'd') return `bash: ${p}: Aucun fichier ou dossier de ce type`;
+  const exist = dir.c[name]; if (exist) { if (exist.t === 'd') return `bash: ${p}: est un dossier`; return lxCan(w, exist, uid, 2) ? null : `bash: ${p}: Permission non accordée`; }
+  return lxCan(w, dir, uid, 2) ? null : `bash: ${p}: Permission non accordée`;
+}
 function lxWrite(w, p, content, append) {
   if (p === '/dev/null') return null;
-  const abs = lxResolve(p, w.cwd, lxHome(w)); const { dir, name, parentPath } = lxParent(w, abs); const uid = lxCurUid(w);
+  const abs = lxResolve(p, w.cwd, lxHome(w)); w.lastEdit = abs; const { dir, name, parentPath } = lxParent(w, abs); const uid = lxCurUid(w);
   if (!dir || dir.t !== 'd') return `bash: ${p}: Aucun fichier ou dossier de ce type`;
   const exist = dir.c[name];
   if (exist) { if (exist.t === 'd') return `bash: ${p}: est un dossier`; if (!lxCan(w, exist, uid, 2)) return `bash: ${p}: Permission non accordée`; exist.d = (append ? (exist.d || '') : '') + content; exist.mt = Date.now(); return null; }
@@ -10441,30 +10570,52 @@ lxcmd('wc', 'Compte lignes (-l), mots (-w) ou caractères (-c).', (w, a, info, s
   if (a.includes('-l')) return [`${lines}${f ? ' ' + f : ''}`]; if (a.includes('-w')) return [`${words}${f ? ' ' + f : ''}`]; if (a.includes('-c')) return [`${text.length}${f ? ' ' + f : ''}`];
   return [`${String(lines).padStart(7)} ${String(words).padStart(7)} ${String(text.length).padStart(7)}${f ? ' ' + f : ''}`];
 });
-lxcmd('grep', 'Affiche les lignes qui contiennent un motif. -i ignore la casse, -n numérote, -v inverse, -c compte, -r cherche récursivement.', (w, a, info, stdin) => {
-  const opts = a.filter((x) => x.startsWith('-') && !/^-\d/.test(x)).join('');
-  const rest = a.filter((x) => !x.startsWith('-')); const pat = rest[0]; const files = rest.slice(1);
-  if (pat == null) return lxErr(info, 'Usage: grep [-inv] MOTIF [FICHIER]');
-  let re; try { re = new RegExp(pat, opts.includes('i') ? 'i' : ''); } catch (e) { re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), opts.includes('i') ? 'i' : ''); }
-  const emit = (lines, prefix) => { const out = []; lines.forEach((l, i) => { const hit = re.test(l); if (opts.includes('v') ? !hit : hit) out.push((prefix ? prefix + ':' : '') + (opts.includes('n') ? (i + 1) + ':' : '') + l); }); return out; };
-  let result = [];
+lxcmd('grep', 'Affiche les lignes qui contiennent un motif. -i ignore la casse, -n numérote, -v inverse, -c compte, -o n’affiche que la partie trouvée, -E motif étendu.', (w, a, info, stdin) => {
+  const flags = []; const rest = []; let pat = null;
+  for (let i = 0; i < a.length; i++) { const x = a[i]; if (x === '-e') { pat = a[++i]; continue; } if (/^-[a-zA-Z]+$/.test(x)) { flags.push(x.slice(1)); continue; } if (/^--/.test(x)) continue; rest.push(x); }
+  const opts = flags.join(''); if (pat == null) pat = rest.shift(); const files = rest;
+  if (pat == null) return lxErr(info, 'Usage: grep [-invcoE] MOTIF [FICHIER]');
+  let src = opts.includes('F') ? pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : opts.includes('E') ? pat : pat.replace(/\\([|(){}+?])/g, '$1');
+  if (opts.includes('w')) src = '\\b(?:' + src + ')\\b';
+  let re; try { re = new RegExp(src, opts.includes('i') ? 'i' : ''); } catch (e) { re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), opts.includes('i') ? 'i' : ''); }
+  const reG = new RegExp(re.source, re.flags + 'g');
+  const emit = (lines, prefix) => { const out = []; lines.forEach((l, i) => { const hit = re.test(l); if (opts.includes('v') ? hit : !hit) return; const pre = (prefix ? prefix + ':' : '') + (opts.includes('n') ? (i + 1) + ':' : ''); if (opts.includes('o') && !opts.includes('v')) (l.match(reG) || []).forEach((m) => out.push(pre + m)); else out.push(pre + l); }); return out; };
+  let result = []; const counts = [];
   if (files.length) {
-    for (const f of files) { const abs = lxResolve(f, w.cwd, lxHome(w)); const n = lxNode(w, abs); if (!n || n.t !== 'f') { result.push(`grep: ${f}: fichier introuvable`); info.ok = false; continue; } if (!lxCan(w, n, lxCurUid(w), 4)) { result.push(`grep: ${f}: Permission non accordée`); info.ok = false; continue; } const text = (n.d == null ? lxGenerated(w, abs) : n.d).replace(/\n$/, ''); result = result.concat(emit(text ? text.split('\n') : [], files.length > 1 ? f : null)); }
-  } else result = emit((stdin || '').replace(/\n$/, '').split('\n').filter((l) => l !== '' || stdin), null);
-  if (opts.includes('c')) return [String(result.length)];
+    for (const f of files) { const abs = lxResolve(f, w.cwd, lxHome(w)); const n = lxNode(w, abs); if (!n || n.t !== 'f') { result.push(`grep: ${f}: ${n ? 'est un dossier' : 'Aucun fichier ou dossier de ce type'}`); info.ok = false; continue; } if (!lxCan(w, n, lxCurUid(w), 4)) { result.push(`grep: ${f}: Permission non accordée`); info.ok = false; continue; } const text = (n.d == null ? lxGenerated(w, abs) : n.d).replace(/\n$/, ''); const r = emit(text ? text.split('\n') : [], files.length > 1 && !opts.includes('h') ? f : null); counts.push((files.length > 1 ? f + ':' : '') + r.length); result = result.concat(r); }
+  } else { result = emit((stdin || '').replace(/\n$/, '').split('\n').filter((l) => l !== '' || stdin), null); counts.push(String(result.length)); }
+  if (opts.includes('c')) return counts;
   return result;
 });
-lxcmd(['awk'], 'Traite le texte par colonnes : $1 est le 1er champ, $NF le dernier. Ex. awk \'{print $1}\'.', (w, a, info, stdin) => {
-  const prog = a.find((x) => x.includes('{')) || a[0] || ''; const m = /\{\s*print\s+(.+?)\s*\}/.exec(prog);
-  const lines = (stdin || '').replace(/\n$/, '').split('\n').filter((l) => l !== '');
-  if (!m) return lines;
-  const specs = m[1].split(',').map((s) => s.trim());
-  return lines.map((l) => { const f = l.split(/\s+/).filter(Boolean); return specs.map((s) => { if (s === '$0') return l; const mm = /^\$\(?NF(?:-(\d+))?\)?$/.exec(s); if (mm) return f[f.length - 1 - (mm[1] ? +mm[1] : 0)] || ''; const n = /^\$(\d+)$/.exec(s); if (n) return f[+n[1] - 1] || ''; return s.replace(/^["']|["']$/g, ''); }).join(' '); });
+/* Lecture d’un fichier pour les filtres (awk, cut, sed…) : { text } ou { err } */
+function lxReadFor(w, cmd, f) {
+  const abs = lxResolve(f, w.cwd, lxHome(w)); const n = lxNode(w, abs);
+  if (!n) return { err: `${cmd}: ${f}: Aucun fichier ou dossier de ce type` }; if (n.t !== 'f') return { err: `${cmd}: ${f}: est un dossier` };
+  if (!lxCan(w, n, lxCurUid(w), 4)) return { err: `${cmd}: ${f}: Permission non accordée` };
+  return { text: n.d == null ? lxGenerated(w, abs) : n.d, abs, node: n };
+}
+lxcmd(['awk'], 'Traite le texte par colonnes : $1 est le 1er champ, $NF le dernier. Ex. awk \'/Failed/ {print $(NF-3)}\' fichier.', (w, a, info, stdin) => {
+  let fs = null; const rest = [];
+  for (let i = 0; i < a.length; i++) { const x = a[i]; if (x === '-F') { fs = a[++i]; continue; } if (/^-F./.test(x)) { fs = x.slice(2); continue; } rest.push(x); }
+  const prog = rest[0] || ''; const files = rest.slice(1);
+  let text = '';
+  if (files.length) { for (const f of files) { const r = lxReadFor(w, 'awk', f); if (r.err) return lxErr(info, r.err); text += r.text; } } else text = stdin || '';
+  const pm = /^\s*(?:\/((?:[^/\\]|\\.)*)\/)?\s*(?:\{\s*print\s*(.*?)\s*;?\s*\})?\s*$/.exec(prog);
+  if (!pm || (pm[1] == null && pm[2] == null)) return lxErr(info, `awk: programme non simulé dans ce labo : ${prog}. Formes reconnues : '{print $1}', '/motif/ {print $2, $NF}', -F:`);
+  const re = pm[1] != null ? new RegExp(pm[1]) : null;
+  const lines = text.replace(/\n$/, '').split('\n').filter((l) => l !== '' && (!re || re.test(l)));
+  const fields = (l) => (fs == null || fs === ' ' ? l.split(/\s+/).filter(Boolean) : l.split(fs === '\\t' ? '\t' : fs));
+  if (!pm[2] || pm[2] === '$0') return lines;
+  const parts = []; let cur = '', q = false; for (const c of pm[2]) { if (c === '"') q = !q; if (c === ',' && !q) { parts.push(cur.trim()); cur = ''; } else cur += c; } parts.push(cur.trim());
+  const val = (f, nr, l, tok) => { if (tok === '$0') return l; if (tok === 'NR') return String(nr); if (tok === 'NF') return String(f.length); const mm = /^\$\(?NF(?:-(\d+))?\)?$/.exec(tok); if (mm) return f[f.length - 1 - (mm[1] ? +mm[1] : 0)] || ''; const n = /^\$(\d+)$/.exec(tok); if (n) return +n[1] === 0 ? l : f[+n[1] - 1] || ''; return tok.replace(/^"|"$/g, ''); };
+  return lines.map((l, k) => { const f = fields(l); return parts.map((p) => (p.match(/\$\(NF-\d+\)|\$NF(?:-\d+)?|\$\d+|"[^"]*"|\bNR\b|\bNF\b/g) || [p]).map((t) => val(f, k + 1, l, t)).join('')).join(' '); });
 });
-lxcmd('cut', 'Découpe chaque ligne. -d fixe le séparateur, -f les champs. Ex. cut -d: -f1.', (w, a, info, stdin) => {
-  let d = '\t', f = '1'; a.forEach((x) => { if (x.startsWith('-d')) d = x.slice(2) || ' '; if (x.startsWith('-f')) f = x.slice(2); });
-  const fi = f.split(',').map((x) => +x - 1);
-  return (stdin || '').replace(/\n$/, '').split('\n').map((l) => { const parts = l.split(d); return fi.map((i) => parts[i] || '').join(d); });
+lxcmd('cut', 'Découpe chaque ligne. -d fixe le séparateur, -f les champs. Ex. cut -d: -f1 /etc/passwd.', (w, a, info, stdin) => {
+  let d = '\t', f = '1'; const files = [];
+  for (let i = 0; i < a.length; i++) { const x = a[i]; if (x === '-d') { d = a[++i] || ' '; continue; } if (x.startsWith('-d')) { d = x.slice(2) || ' '; continue; } if (x === '-f') { f = a[++i] || '1'; continue; } if (x.startsWith('-f')) { f = x.slice(2); continue; } if (!x.startsWith('-')) files.push(x); }
+  let text = ''; if (files.length) { for (const fl of files) { const r = lxReadFor(w, 'cut', fl); if (r.err) return lxErr(info, r.err); text += r.text; } } else text = stdin || '';
+  const fi = []; f.split(',').forEach((x) => { const m = /^(\d*)-(\d*)$/.exec(x); if (m) { const lo = +m[1] || 1; const hi = +m[2] || 30; for (let k = lo; k <= hi; k++) fi.push(k - 1); } else fi.push(+x - 1); });
+  return text.replace(/\n$/, '').split('\n').map((l) => { const parts = l.split(d); if (parts.length === 1) return l; return fi.map((i) => parts[i]).filter((x) => x !== undefined).join(d); });
 });
 lxcmd('sort', 'Trie les lignes. -n numérique, -r inverse, -u unique.', (w, a, info, stdin) => {
   let lines = (stdin || '').replace(/\n$/, '').split('\n').filter((l) => l !== '');
@@ -10478,7 +10629,14 @@ lxcmd('uniq', 'Regroupe les lignes identiques consécutives. -c les compte (à u
   lines.forEach((l) => { if (l === prev) cnt++; else { flush(); prev = l; cnt = 1; } }); flush();
   return out;
 });
-lxcmd('echo', 'Affiche son argument. Combiné à > il écrit dans un fichier, à >> il ajoute.', (w, a) => [a.join(' ')]);
+lxcmd('echo', 'Affiche son argument. Combiné à > il écrit dans un fichier, à >> il ajoute. -e interprète \\n.', (w, a) => {
+  let k = 0; let esc = false; while (k < a.length && /^-[neE]+$/.test(a[k])) { if (a[k].includes('e')) esc = true; k++; }
+  const t = a.slice(k).join(' '); return (esc ? t.replace(/\\n/g, '\n').replace(/\\t/g, '\t') : t).split('\n');
+});
+lxcmd('printf', 'Affiche un texte formaté : printf "ligne 1\\nligne 2\\n". %s est remplacé par les arguments suivants.', (w, a) => {
+  if (!a.length) return []; let i = 1; const t = a[0].replace(/%s/g, () => (a[i] != null ? a[i++] : '')).replace(/%d/g, () => (a[i] != null ? String(parseInt(a[i++], 10) || 0) : '0')).replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/%%/g, '%');
+  return t.replace(/\n$/, '').split('\n');
+});
 lxcmd('find', 'Cherche des fichiers. -name par nom, -type f/d, -perm par droits.', (w, a, info) => {
   const start = a.find((x) => !x.startsWith('-') && !a[a.indexOf(x) - 1]?.startsWith('-name') && !a[a.indexOf(x) - 1]?.startsWith('-type') && !a[a.indexOf(x) - 1]?.startsWith('-perm')) || '.';
   const ni = a.indexOf('-name'); const nameRe = ni >= 0 ? new RegExp('^' + a[ni + 1].replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$') : null;
@@ -10489,12 +10647,107 @@ lxcmd('find', 'Cherche des fichiers. -name par nom, -type f/d, -perm par droits.
   const walk = (node, path) => {
     let ok = true; if (nameRe && !nameRe.test(path.split('/').pop() || '/')) ok = false;
     if (type === 'f' && node.t !== 'f') ok = false; if (type === 'd' && node.t !== 'd') ok = false;
-    if (perm) { const want = parseInt(perm.replace(/^-/, ''), 8); if (perm.startsWith('-')) { if ((node.mode & want) !== want) ok = false; } else if ((node.mode & 0o7777) !== want) ok = false; }
+    if (perm) { const body = perm.replace(/^[-/]/, ''); const want = /^[0-7]+$/.test(body) ? parseInt(body, 8) : (parseMode(0, body.replace(/^([ugoa]*)=/, '$1+'), false) || 0); if (perm.startsWith('-')) { if ((node.mode & want) !== want) ok = false; } else if (perm.startsWith('/')) { if (!(node.mode & want)) ok = false; } else if ((node.mode & 0o7777) !== want) ok = false; }
     if (ok) out.push(path || '/');
     if (node.t === 'd' && lxCan(w, node, uid, 1) && lxCan(w, node, uid, 4)) Object.keys(node.c).sort().forEach((k) => walk(node.c[k], (path === '/' ? '' : path) + '/' + k));
   };
   walk(root, start === '.' ? '.' : abs);
   return out;
+});
+
+lxcmd('stat', 'Détaille un fichier : droits en octal (0600) et en lettres, propriétaire, groupe, taille. -c \'%a %U %n\' pour un format court.', (w, a, info) => {
+  let fmt = null; const files = [];
+  for (let i = 0; i < a.length; i++) { const x = a[i]; if (x === '-c' || x === '--format' || x === '--printf') { fmt = a[++i] || ''; continue; } if (/^-c./.test(x)) { fmt = x.slice(2); continue; } if (/^--(format|printf)=/.test(x)) { fmt = x.replace(/^--\w+=/, ''); continue; } if (!x.startsWith('-')) files.push(x); }
+  if (!files.length) return lxErr(info, 'stat: opérande manquant');
+  const out = []; info.stat = [];
+  for (const f of files) {
+    const abs = lxResolve(f, w.cwd, lxHome(w)); const n = lxNode(w, abs);
+    if (!n) { out.push(`stat: impossible d’évaluer '${f}': Aucun fichier ou dossier de ce type`); info.ok = false; continue; }
+    info.stat.push(abs);
+    const oct = (n.mode & 0o7777).toString(8); const sym = lxModeStr(n); const user = lxUserOf(w, n.uid); const grp = lxGroupOf(w, n.gid); const size = n.t === 'd' ? 4096 : (n.d || '').length; const type = n.t === 'd' ? 'répertoire' : 'fichier';
+    if (fmt != null) { out.push(fmt.replace(/\\n/g, '').replace(/%a/g, oct).replace(/%A/g, sym).replace(/%U/g, user).replace(/%G/g, grp).replace(/%u/g, n.uid).replace(/%g/g, n.gid).replace(/%n/g, f).replace(/%s/g, size).replace(/%F/g, type)); continue; }
+    out.push(`  Fichier : ${f}`, `   Taille : ${padR(size, 9)} Blocs : 8          Blocs d’E/S : 4096   ${type}`, `Accès : (${oct.padStart(4, '0')}/${sym})  UID : (${String(n.uid).padStart(5)}/${padR(user, 8)})   GID : (${String(n.gid).padStart(5)}/${padR(grp, 8)})`, `Modif. : ${new Date(n.mt || Date.now()).toISOString().replace('T', ' ').slice(0, 19)}`);
+  }
+  info.ex = 'stat détaille un fichier : ses droits en octal (ex. 0600) et en lettres, son propriétaire, son groupe et sa taille.';
+  return out;
+});
+/* sed : s/motif/remplacement/[gI], /motif/d, p (avec -n), a / i / c (une ligne), adresses /re/, N, $ ; -i, -E, -n. */
+function sedRe(src, ext, flags) {
+  let js = src;
+  if (!ext) { let o = ''; for (let i = 0; i < src.length; i++) { const c = src[i]; if (c === '\\' && i + 1 < src.length) { const n = src[i + 1]; if ('(){}+?|'.includes(n)) o += n; else o += c + n; i++; continue; } if ('(){}+?|'.includes(c)) o += '\\' + c; else o += c; } js = o; }
+  return new RegExp(js, flags);
+}
+function sedParse(script) {
+  const cmds = []; const s = script; let i = 0;
+  const readTo = (d) => { let o = ''; while (i < s.length && s[i] !== d) { if (s[i] === '\\' && i + 1 < s.length) { o += s[i + 1] === d ? d : s[i] + s[i + 1]; i += 2; continue; } o += s[i++]; } if (s[i] !== d) throw new Error('sed: commande « s » inachevée'); i++; return o; };
+  while (i < s.length) {
+    while (i < s.length && /[\s;]/.test(s[i])) i++; if (i >= s.length) break;
+    let addr = null;
+    if (s[i] === '/') { i++; addr = { re: readTo('/') }; if (s[i] === 'I') { addr.i = true; i++; } }
+    else if (/\d/.test(s[i])) { let n = ''; while (/\d/.test(s[i])) n += s[i++]; addr = { line: +n }; }
+    else if (s[i] === '$') { i++; addr = { last: true }; }
+    while (s[i] === ' ') i++;
+    const c = s[i++];
+    if (c === 's') { const d = s[i++]; const pat = readTo(d); const rep = readTo(d); let fl = ''; while (i < s.length && /[gIip0-9]/.test(s[i])) fl += s[i++]; cmds.push({ addr, c, pat, rep, fl }); }
+    else if (c === 'd' || c === 'p') cmds.push({ addr, c });
+    else if (c === 'a' || c === 'i' || c === 'c') { if (s[i] === '\\') i++; while (s[i] === ' ') i++; let t = ''; while (i < s.length && s[i] !== '\n') t += s[i++]; cmds.push({ addr, c, text: t }); }
+    else throw new Error(`sed: -e expression n°1, caractère ${i} : commande inconnue : « ${c || ''} »`);
+  }
+  return cmds;
+}
+function sedApply(lines, cmds, ext, quiet) {
+  const out = [];
+  lines.forEach((line, idx) => {
+    let cur = line; let del = false; const after = [];
+    for (const c of cmds) {
+      const a = c.addr; const hit = !a || (a.re != null ? sedRe(a.re, ext, a.i ? 'i' : '').test(cur) : a.line != null ? a.line === idx + 1 : idx === lines.length - 1);
+      if (!hit) continue;
+      if (c.c === 's') { const re = sedRe(c.pat, ext, (c.fl.includes('g') ? 'g' : '') + (/[iI]/.test(c.fl) ? 'i' : '')); const nv = cur.replace(re, (...m) => { const g = m.slice(0, -2); return c.rep.replace(/\\(\d)|\\n|\\&|&|\\(.)/g, (x, d, o) => (d != null ? g[+d] || '' : x === '\\n' ? '\n' : x === '\\&' ? '&' : x === '&' ? g[0] : o)); }); if (nv !== cur && c.fl.includes('p')) out.push(nv); cur = nv; }
+      else if (c.c === 'd') { del = true; break; }
+      else if (c.c === 'p') out.push(cur);
+      else if (c.c === 'i') out.push(c.text);
+      else if (c.c === 'a') after.push(c.text);
+      else if (c.c === 'c') { out.push(c.text); del = true; break; }
+    }
+    if (!del && !quiet) out.push(cur); out.push(...after);
+  });
+  return out;
+}
+lxcmd('sed', 'Éditeur de flux : s/ancien/nouveau/ remplace, /motif/d supprime. -i modifie le fichier lui-même (sudo pour un fichier système).', (w, a, info, stdin) => {
+  let inPlace = false, ext = false, quiet = false, explicit = false; const scripts = []; const files = [];
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    if (x === '-e' || x === '--expression') { scripts.push(a[++i] || ''); explicit = true; continue; }
+    if (x.startsWith('--expression=')) { scripts.push(x.slice(13)); explicit = true; continue; }
+    if (x === '--in-place' || x.startsWith('--in-place=')) { inPlace = true; continue; }
+    if (x === '--regexp-extended') { ext = true; continue; }
+    if (x === '--quiet' || x === '--silent') { quiet = true; continue; }
+    if (/^-[a-zA-Z]/.test(x)) { const m = /^-([nErs]*)i(.*)$/.exec(x); if (m) { inPlace = true; if (/[Er]/.test(m[1])) ext = true; if (m[1].includes('n')) quiet = true; continue; } if (/^-[nErs]+$/.test(x)) { if (/[Er]/.test(x)) ext = true; if (x.includes('n')) quiet = true; continue; } return lxErr(info, `sed: option invalide -- '${x.slice(1)}'`); }
+    if (!explicit && !scripts.length) scripts.push(x); else files.push(x);
+  }
+  if (!scripts.length) return lxErr(info, 'Usage: sed [-i] [-E] \'s/ancien/nouveau/\' FICHIER');
+  let cmds; try { cmds = sedParse(scripts.join('\n')); } catch (e) { return lxErr(info, e.message); }
+  const run = (text) => sedApply(text.replace(/\n$/, '').split('\n'), cmds, ext, quiet);
+  if (!files.length) { if (inPlace) return lxErr(info, 'sed: aucun fichier d’entrée'); return run(stdin || ''); }
+  const out = [];
+  for (const f of files) {
+    const r = lxReadFor(w, 'sed', f); if (r.err) return lxErr(info, r.err);
+    const res = run(r.text);
+    if (inPlace) { if (!lxCan(w, r.node, lxCurUid(w), 2) || !lxCan(w, lxParent(w, r.abs).dir || w.fs, lxCurUid(w), 2)) return lxErr(info, `sed: impossible de créer le fichier temporaire ${r.abs.slice(0, r.abs.lastIndexOf('/'))}/sedX4kQ2a: Permission non accordée`); r.node.d = res.join('\n') + '\n'; r.node.mt = Date.now(); w.lastEdit = r.abs; info.edited = r.abs; }
+    else out.push(...res);
+  }
+  info.ex = inPlace ? `sed -i modifie ${files.join(', ')} directement (sans sauvegarde : -i.bak en garderait une copie). Vérifie le résultat avec cat ou grep.` : 'sed affiche le texte transformé ; le fichier n’est pas modifié (ajoute -i pour l’écrire).';
+  return out;
+});
+lxcmd('tee', 'Recopie son entrée à l’écran ET dans un fichier ; -a ajoute à la fin. Avec sudo : echo "…" | sudo tee -a FICHIER.', (w, a, info, stdin) => {
+  const app = a.includes('-a') || a.includes('--append'); const files = a.filter((x) => !x.startsWith('-'));
+  const text = stdin == null ? '' : stdin; const content = text === '' ? '' : (text.endsWith('\n') ? text : text + '\n');
+  for (const f of files) {
+    if (app) { const abs = lxResolve(f, w.cwd, lxHome(w)); const n = lxNode(w, abs); if (n && n.t === 'f' && n.d && !n.d.endsWith('\n') && lxCan(w, n, lxCurUid(w), 2)) n.d += '\n'; }
+    const err = lxWrite(w, f, content, app); if (err) { info.ok = false; return [err.replace(/^bash/, 'tee')]; } info.edited = lxResolve(f, w.cwd, lxHome(w));
+  }
+  info.ex = app ? `Ajoute le texte à la fin de ${files.join(', ')} et l’affiche.` : `Écrit le texte dans ${files.join(', ')} (le contenu précédent est remplacé) et l’affiche.`;
+  return text ? text.replace(/\n$/, '').split('\n') : [];
 });
 
 /* ---------- Création / suppression ---------- */
@@ -10573,7 +10826,12 @@ lxcmd('env', 'Affiche les variables d’environnement.', (w) => Object.entries(w
 lxcmd('export', 'Définit une variable d’environnement : export NOM=valeur.', (w, a) => { a.forEach((x) => { const i = x.indexOf('='); if (i > 0) w.env[x.slice(0, i)] = x.slice(i + 1); }); return []; });
 lxcmd('history', 'Affiche l’historique des commandes.', (w) => w.hist.slice(-20).map((h, i) => `${String(w.hist.length - Math.min(20, w.hist.length) + i + 1).padStart(5)}  ${h}`));
 lxcmd(['clear'], 'Efface l’écran.', () => []);
-lxcmd('help', 'Liste les commandes de ce shell d’entraînement.', () => ['Commandes : pwd cd ls tree cat head tail wc grep awk cut sort uniq echo find', '           mkdir touch cp mv rm chmod chown chgrp umask', '           whoami id groups sudo useradd usermod userdel passwd groupadd gpasswd', '           systemctl journalctl ps service', '           apt ufw ip ss ping ssh-keygen sshd nano crontab tar sha256sum date df', 'Tube | , redirections > >> , flèches ↑ et Tab fonctionnent.']);
+lxcmd('help', 'Liste les commandes de ce shell d’entraînement.', () => ['Commandes : pwd cd ls ll tree cat less head tail wc grep awk cut sed sort uniq echo printf tee find stat',
+  '           mkdir touch cp mv rm chmod chown chgrp umask',
+  '           whoami id groups getent sudo (sudo -i) su useradd adduser usermod userdel deluser passwd groupadd gpasswd',
+  '           systemctl service journalctl ps apt',
+  '           ip ss ping netplan ufw ssh-keygen sshd nano crontab tar sha256sum date df',
+  'Tubes | , redirections > >> , enchaînements ; && || , jokers * ?, flèches ↑ et Tab fonctionnent.']);
 lxcmd('date', 'Affiche la date. +%F pour AAAA-MM-JJ.', (w, a) => { const d = new Date(); if ((a[0] || '').includes('%F')) return [localISO(d)]; return [d.toString()]; });
 lxcmd('df', 'Affiche l’espace disque. -h en unités lisibles.', (w, a) => ['Filesystem      Size  Used Avail Use% Mounted on', '/dev/sda1        40G   12G   26G  32% /']);
 lxcmd('ps', 'Liste les processus. « ps aux » pour tous.', (w) => { const out = ['USER         PID %CPU %MEM    VSZ   RSS TTY   STAT START   TIME COMMAND', 'root           1  0.0  0.1 167132 11284 ?     Ss   09:00   0:01 /sbin/init']; Object.entries(w.svc).forEach(([n, s]) => { if (s.active) out.push(`root        ${String(s.pid).padStart(4)}  0.0  0.1  15432  7480 ?     Ss   09:01   0:00 ${n === 'ssh' ? '/usr/sbin/sshd -D' : n}`); }); out.push(`etudiant        3120  0.0  0.1  12112  5120 pts/0 Ss   09:12   0:00 -bash`); return out; });
@@ -10587,14 +10845,24 @@ lxcmd(['man'], 'Affiche l’aide d’une commande (version courte dans ce labo).
 function lxSudo(w, args, stdin) {
   const info = { key: 'sudo', ok: true };
   const u = w.users[w.user];
-  if (!args.length) return { out: ['usage: sudo commande'], info };
+  let k = 0; while (k < args.length && /^-[EHkSA]+$/.test(args[k])) k++; args = args.slice(k);
+  if (args[0] === '-u' || args[0] === '--user') { if (args[1] && args[1] !== 'root') return { out: ['[Trame] Ce labo ne simule que sudo vers root.'], info: { ok: false, key: 'sudo' } }; args = args.slice(2); }
+  if (!args.length) return { out: ['usage: sudo commande', '       sudo -i    (shell root)'], info };
   if (args[0] === '-l') return { out: [`L’utilisateur ${w.user} peut lancer les commandes suivantes sur ${w.host} :`, '    (ALL : ALL) ALL'], info: { key: 'sudo -l', ex: 'Liste ce que tu as le droit d’exécuter avec sudo.' } };
-  if (!u || !u.groups.includes('sudo')) return { out: [`${w.user} n’apparaît pas dans le fichier sudoers. Cet incident sera signalé.`], info: { ok: false, key: 'sudo', ex: 'Ce compte n’est pas membre du groupe sudo : il ne peut pas prendre les droits administrateur.' } };
+  const login = args[0] === '-i' || (args[0] === 'su' && ['-', '-l', '--login'].includes(args[1])) || (args[0] === 'su' && args[1] === '-' && args[2] === 'root');
+  const shell = login || args[0] === '-s' || (args[0] === 'su' && (!args[1] || args[1] === 'root')) || (['bash', 'sh'].includes(args[0]) && args.length === 1);
+  if (w.user === 'root') { if (shell) return { out: [], info: { key: 'sudo', ex: 'Tu es déjà root.' } }; return lxRun(w, args, stdin, true); }
+  if (!u || !u.groups.includes('sudo')) return { out: [`${w.user} n’apparaît pas dans le fichier sudoers. Cet incident sera signalé.`], info: { ok: false, key: 'sudo', ex: 'Ce compte n’est pas membre du groupe sudo : il ne peut pas prendre les droits root.' } };
   const run = () => {
-    const prev = w.user; w.user = 'root';
+    const prev = w.user;
+    const log = lxNode(w, '/var/log/auth.log'); if (log) log.d += `Oct 20 ${new Date().toTimeString().slice(0, 8)} trame sudo:     ${prev} : TTY=pts/0 ; PWD=${w.cwd} ; USER=root ; COMMAND=${shell ? '/bin/bash' : args.join(' ')}\n`;
+    if (shell) {
+      w.rootShell = { user: prev, cwd: w.cwd }; w.user = 'root'; if (login) w.cwd = '/root';
+      return { out: [], info: { key: 'sudo -i', sudo: true, rootShell: true, ok: true, ex: 'Tu es maintenant root (prompt en #) : chaque commande a tous les droits, sans sudo. Reste-y le moins longtemps possible, et tape « exit » pour redevenir ' + prev + '.' } };
+    }
+    w.user = 'root';
     let r; try { r = lxRun(w, args, stdin, true); } finally { w.user = prev; }
     r.info = r.info || {}; r.info.sudo = true; r.info.ex = 'sudo exécute la commande avec les droits administrateur (root), et l’enregistre dans le journal. ' + (r.info.ex || '');
-    const log = lxNode(w, '/var/log/auth.log'); if (log) log.d += `Oct 20 ${new Date().toTimeString().slice(0, 8)} trame sudo:     ${prev} : TTY=pts/0 ; PWD=${w.cwd} ; USER=root ; COMMAND=${args.join(' ')}\n`;
     return r;
   };
   if (w.sudoOk && Date.now() - w.sudoOk < 15 * 60000) return run();
@@ -10607,18 +10875,37 @@ function lxSudo(w, args, stdin) {
   w.pend = ask();
   return { out: [], info: { key: 'sudo', ex: 'sudo demande TON mot de passe (pas celui de root) pour confirmer que c’est bien toi. Mot de passe du labo : trame.' } };
 }
+lxcmd('su', 'Change d’utilisateur. Sur Ubuntu, root n’a pas de mot de passe utilisable : on passe par sudo -i.', (w, a, info) => {
+  const target = a.filter((x) => !x.startsWith('-')).pop() || 'root';
+  if (w.user === 'root' && w.users[target]) { w.rootShell = w.rootShell || { user: 'root', cwd: w.cwd }; info.ex = `Tu agis maintenant en tant que ${target}. « exit » pour revenir.`; w.suStack = (w.suStack || []).concat([{ user: w.user, cwd: w.cwd }]); w.user = target; if (a.includes('-') || a.includes('-l')) w.cwd = w.users[target].home; return []; }
+  w.pend = { prompt: 'Mot de passe : ', secret: true, on: (pw, out, inf) => { out.push('su: Échec de l’authentification'); inf.ok = false; inf.ex = target === 'root' ? 'Sur Ubuntu, le compte root est verrouillé (pas de mot de passe) : utilise « sudo -i » pour ouvrir un shell root avec TON mot de passe.' : `Il faudrait le mot de passe de ${target}. En administrateur : sudo -i, puis su - ${target}.`; } };
+  info.ex = 'su demande le mot de passe du compte cible.'; return [];
+});
 function needRoot(w, info, cmd) { if (lxCurUid(w) !== 0) { info.ok = false; return [`${cmd}: Permission non accordée (relance avec sudo)`]; } return null; }
 
 /* ---------- Comptes ---------- */
 lxcmd(['useradd', 'adduser'], 'Crée un compte. -m crée son dossier personnel, -s choisit son shell, -G ses groupes.', (w, a, info) => {
-  const e = needRoot(w, info, 'useradd'); if (e) return e;
+  const e = needRoot(w, info, info.key); if (e) return e;
+  const pos = a.filter((x, i) => !x.startsWith('-') && !['-s', '-G', '-g', '-c', '-u', '-d', '--shell', '--gecos', '--ingroup', '--home', '--uid'].includes(a[i - 1]));
+  if (info.key === 'adduser' && pos.length === 2 && w.users[pos[0]]) {
+    const [un, g] = pos; if (w.gids[g] == null) return lxErr(info, `adduser : le groupe « ${g} » n’existe pas.`);
+    const uu = w.users[un]; if (uu.groups.includes(g)) return [`L’utilisateur « ${un} » appartient déjà au groupe « ${g} ».`];
+    uu.groups.push(g); info.ex = `Debian/Ubuntu : « adduser COMPTE GROUPE » ajoute un compte existant à un groupe (comme usermod -aG ${g} ${un}).`;
+    return [`Ajout de l’utilisateur « ${un} » au groupe « ${g} »...`, 'Fait.'];
+  }
   const name = a.filter((x) => !x.startsWith('-') && !['/bin/bash', '/bin/sh'].includes(x) && a[a.indexOf(x) - 1] !== '-s' && a[a.indexOf(x) - 1] !== '-G').pop();
   if (!name) return lxErr(info, 'Usage: useradd [-m] [-s shell] NOM'); if (w.users[name]) return lxErr(info, `useradd: l’utilisateur « ${name} » existe déjà`);
   const uid = Math.max(...Object.values(w.users).map((u) => u.uid).filter((x) => x < 60000)) + 1;
   const si = a.indexOf('-s'); const gi = a.indexOf('-G');
   w.gids[name] = uid;
-  w.users[name] = { uid, gid: uid, home: '/home/' + name, shell: si >= 0 ? a[si + 1] : '/bin/sh', groups: [name].concat(gi >= 0 ? a[gi + 1].split(',') : []), pw: false };
-  if (a.includes('-m') || info.key === 'adduser') w.fs.c.home.c[name] = fD(0o750, uid, uid, { '.bashrc': fF(0o644, uid, uid, '') });
+  const isAdd = info.key === 'adduser'; const shArg = si >= 0 ? a[si + 1] : a.includes('--shell') ? a[a.indexOf('--shell') + 1] : null;
+  w.users[name] = { uid, gid: uid, home: '/home/' + name, shell: shArg || (isAdd ? '/bin/bash' : '/bin/sh'), groups: [name].concat(gi >= 0 ? a[gi + 1].split(',') : []), pw: false };
+  if (a.includes('-m') || a.includes('--create-home') || isAdd) w.fs.c.home.c[name] = fD(0o750, uid, uid, { '.bashrc': fF(0o644, uid, uid, '') });
+  if (isAdd) {
+    const out = [`Ajout de l’utilisateur « ${name} » ...`, `Ajout du nouveau groupe « ${name} » (${uid}) ...`, `Ajout du nouvel utilisateur « ${name} » (${uid}) avec le groupe « ${name} » ...`, `Création du répertoire personnel « /home/${name} » ...`];
+    if (!a.includes('--disabled-password') && !a.includes('--disabled-login')) { LX_CMDS.passwd.fn(w, [name], info); info.ex = `adduser (Debian/Ubuntu) crée le compte, son dossier /home/${name}, lui donne bash, puis demande son mot de passe.`; }
+    return out;
+  }
   info.ex = `Crée le compte « ${name} » (UID ${uid})${a.includes('-m') ? ' avec son dossier /home/' + name : ' sans dossier personnel (ajoute -m)'}. Il n’a pas encore de mot de passe : utilise passwd.`;
   return [];
 });
@@ -10626,14 +10913,28 @@ lxcmd('usermod', 'Modifie un compte. -aG groupe ajoute à un groupe (sans retire
   const e = needRoot(w, info, 'usermod'); if (e) return e;
   const name = a[a.length - 1]; const u = w.users[name]; if (!u) return lxErr(info, `usermod: l’utilisateur « ${name} » n’existe pas`);
   const gi = a.findIndex((x) => x === '-aG' || x === '-G' || x === '-a');
-  if (a.includes('-L')) { u.locked = true; info.ex = `Verrouille le compte « ${name} » : son mot de passe ne permet plus de se connecter.`; return []; }
-  if (a.includes('-U')) { u.locked = false; info.ex = `Déverrouille le compte « ${name} ».`; return []; }
-  const gArg = a.includes('-aG') ? a[a.indexOf('-aG') + 1] : a.includes('-G') ? a[a.indexOf('-G') + 1] : null;
+  if (a.includes('-s') || a.includes('--shell')) { const sh = a[a.indexOf(a.includes('-s') ? '-s' : '--shell') + 1]; u.shell = sh; info.ex = `Le shell de ${name} devient ${sh}.`; if (!a.some((x) => /^-(a?G|a|L|U)$/.test(x))) return []; }
+  if (a.includes('-L') || a.includes('--lock')) { u.locked = true; info.ex = `Verrouille le compte « ${name} » : son mot de passe ne permet plus de se connecter.`; return []; }
+  if (a.includes('-U') || a.includes('--unlock')) { u.locked = false; info.ex = `Déverrouille le compte « ${name} ».`; return []; }
+  const gFlag = ['-aG', '-Ga', '-G', '--groups'].find((f) => a.includes(f)); const gArg = gFlag ? a[a.indexOf(gFlag) + 1] : null; const append = a.includes('-aG') || a.includes('-Ga') || a.includes('-a') || a.includes('--append');
   if (!gArg) return lxErr(info, 'Usage: usermod -aG GROUPE UTILISATEUR');
   const list = gArg.split(','); for (const g of list) if (w.gids[g] == null) return lxErr(info, `usermod: le groupe « ${g} » n’existe pas`);
-  if (a.includes('-aG') || (a.includes('-a') && a.includes('-G'))) { list.forEach((g) => { if (!u.groups.includes(g)) u.groups.push(g); }); info.ex = `Ajoute « ${name} » au(x) groupe(s) ${list.join(', ')}, en conservant ses autres groupes (-a).`; }
+  if (append) { list.forEach((g) => { if (!u.groups.includes(g)) u.groups.push(g); }); info.ex = `Ajoute « ${name} » au(x) groupe(s) ${list.join(', ')}, en conservant ses autres groupes (-a).`; }
   else { u.groups = [name].concat(list); info.ex = `Attention : sans -a, les groupes secondaires de « ${name} » sont REMPLACÉS par : ${list.join(', ')}.`; }
   return [];
+});
+lxcmd('getent', 'Interroge les bases du système : getent passwd COMPTE, getent group GROUPE.', (w, a, info) => {
+  const db = a[0]; const key = a[1]; if (!['passwd', 'group', 'shadow'].includes(db)) return lxErr(info, `getent : base inconnue « ${db || ''} »`);
+  if (db === 'shadow' && lxCurUid(w) !== 0) { info.ok = false; return []; }
+  const lines = lxGenerated(w, '/etc/' + db).replace(/\n$/, '').split('\n'); const out = key ? lines.filter((l) => l.split(':')[0] === key) : lines;
+  if (key && !out.length) info.ok = false;
+  info.ex = db === 'group' ? 'Ligne du groupe : nom, x, GID, puis la liste de ses membres.' : 'Ligne du compte : nom, x, UID, GID, description, dossier, shell.'; return out;
+});
+lxcmd('deluser', 'Debian/Ubuntu : « deluser COMPTE GROUPE » retire d’un groupe ; « deluser COMPTE » supprime le compte.', (w, a, info) => {
+  const e = needRoot(w, info, 'deluser'); if (e) return e;
+  const pos = a.filter((x) => !x.startsWith('-')); const u = w.users[pos[0]]; if (!u) return lxErr(info, `deluser : l’utilisateur « ${pos[0] || ''} » n’existe pas.`);
+  if (pos[1]) { if (!u.groups.includes(pos[1])) return lxErr(info, `deluser : l’utilisateur « ${pos[0]} » n’est pas membre du groupe « ${pos[1]} ».`); u.groups = u.groups.filter((g) => g !== pos[1]); info.ex = `Retire ${pos[0]} du groupe ${pos[1]}.`; return [`Suppression de l’utilisateur « ${pos[0]} » du groupe « ${pos[1]} » ...`, 'Fait.']; }
+  if (a.includes('--remove-home')) delete w.fs.c.home.c[pos[0]]; delete w.users[pos[0]]; info.ex = 'Supprime le compte.'; return [`Suppression de l’utilisateur « ${pos[0]} » ...`, 'Fait.'];
 });
 lxcmd('userdel', 'Supprime un compte. -r supprime aussi son dossier personnel.', (w, a, info) => {
   const e = needRoot(w, info, 'userdel'); if (e) return e;
@@ -10654,8 +10955,18 @@ lxcmd('gpasswd', 'Gère les membres d’un groupe : -a COMPTE GROUPE ajoute, -d 
   if (!u.groups.includes(g)) return lxErr(info, `gpasswd : l’utilisateur « ${user} » n’est pas membre de « ${g} »`);
   u.groups = u.groups.filter((x) => x !== g); info.ex = `Retire ${user} du groupe ${g} (effectif à sa prochaine connexion).`; return [`Suppression de l’utilisateur ${user} du groupe ${g}`];
 });
-lxcmd('passwd', 'Change un mot de passe. root peut définir celui de n’importe quel compte.', (w, a, info) => {
-  const target = a[0] || w.user; if (target !== w.user && lxCurUid(w) !== 0) return lxErr(info, 'passwd: Vous ne pouvez pas changer le mot de passe de ' + target);
+lxcmd('passwd', 'Change un mot de passe. root peut définir celui de n’importe quel compte ; -l verrouille, -u déverrouille, -S affiche l’état.', (w, a, info) => {
+  const fl = a.filter((x) => x.startsWith('-')); const target = a.filter((x) => !x.startsWith('-'))[0] || w.user;
+  if (fl.length) {
+    if (!w.users[target]) return lxErr(info, `passwd : l’utilisateur « ${target} » n’existe pas`);
+    if (lxCurUid(w) !== 0 && !(fl.includes('-S') && target === w.user)) return lxErr(info, 'passwd : Permission non accordée (relance avec sudo)');
+    const u = w.users[target];
+    if (fl.some((f) => /^-(l|-lock)$/.test(f))) { u.locked = true; info.ex = `Verrouille le mot de passe de « ${target} » (un « ! » est ajouté devant son empreinte dans /etc/shadow).`; return ['passwd : informations d’expiration du mot de passe modifiées.']; }
+    if (fl.some((f) => /^-(u|-unlock)$/.test(f))) { u.locked = false; info.ex = `Déverrouille « ${target} ».`; return ['passwd : informations d’expiration du mot de passe modifiées.']; }
+    if (fl.some((f) => /^-(d|-delete)$/.test(f))) { u.pw = false; info.ex = `Supprime le mot de passe de « ${target} » : dangereux, le compte pourrait s’ouvrir sans mot de passe.`; return ['passwd : informations d’expiration du mot de passe modifiées.']; }
+    if (fl.some((f) => /^-(S|-status)$/.test(f))) { info.ex = 'État du mot de passe : P (défini), L (verrouillé), NP (aucun).'; return [`${target} ${u.locked ? 'L' : u.pw ? 'P' : 'NP'} 10/20/2026 0 99999 7 -1`]; }
+    return lxErr(info, `passwd : option non simulée : ${fl.join(' ')}`);
+  } if (target !== w.user && lxCurUid(w) !== 0) return lxErr(info, 'passwd: Vous ne pouvez pas changer le mot de passe de ' + target);
   if (!w.users[target]) return lxErr(info, `passwd: l’utilisateur « ${target} » n’existe pas`);
   let first = null;
   w.pend = { prompt: 'Nouveau mot de passe : ', secret: true, on: (p1, out) => { first = p1; w.pend = { prompt: 'Retapez le nouveau mot de passe : ', secret: true, on: (p2, out2, inf) => { if (p1 !== p2) { out2.push('Les mots de passe ne correspondent pas.', 'passwd : le mot de passe n’a pas été changé'); inf.ok = false; return; } if (p1.length < 8) out2.push('MOT DE PASSE INCORRECT : il est plus court que 8 caractères (accepté pour le labo, à éviter en vrai)'); w.users[target].pw = true; out2.push('passwd : le mot de passe a été mis à jour avec succès'); inf.key = 'passwd-ok'; inf.passwdUser = target; inf.ex = `Le mot de passe de « ${target} » est stocké haché et salé dans /etc/shadow.`; } }; } };
@@ -10667,7 +10978,11 @@ lxcmd('passwd', 'Change un mot de passe. root peut définir celui de n’importe
 const SVC_ALIAS = { sshd: 'ssh', 'openssh-server': 'ssh', crond: 'cron', 'fail2ban-server': 'fail2ban' };
 function svcName(n) { const b = String(n || '').replace(/\.service$/, ''); return SVC_ALIAS[b] || b; }
 lxcmd('systemctl', 'Pilote les services : status, start, stop, restart, enable, disable, list-units.', (w, a, info) => {
-  const sub = a[0]; const now = a.includes('--now'); const name = svcName(a.filter((x) => !x.startsWith('-'))[1]);
+  let sub = a.filter((x) => !x.startsWith('-'))[0]; const now = a.includes('--now'); const names = a.filter((x) => !x.startsWith('-')).slice(1); const name = svcName(names[0]);
+  if (!sub || sub === 'list-unit-files') sub = 'list-units';
+  if (sub === 'daemon-reload') { const r = needRoot(w, info, 'systemctl'); if (r) return r; info.ex = 'Relit les fichiers d’unités systemd (après modification d’un .service).'; return []; }
+  if (['reload-or-restart', 'try-restart', 'try-reload-or-restart', 'condrestart'].includes(sub)) sub = 'restart';
+  if (names.length > 1 && ['start', 'stop', 'restart', 'reload', 'enable', 'disable'].includes(sub)) { let out = []; for (const n of names) { out = out.concat(LX_CMDS.systemctl.fn(w, a.filter((x) => x.startsWith('-')).concat([sub, n]), info) || []); if (info.ok === false) break; } return out; }
   if (sub === 'list-units') { const running = a.some((x) => x.includes('running')); const out = ['  UNIT                  LOAD   ACTIVE SUB     DESCRIPTION']; Object.entries(w.svc).forEach(([n, s]) => { if (running && !s.active) return; out.push(`  ${padR(n + '.service', 22)}loaded ${padR(s.active ? 'active' : 'inactive', 7)}${padR(s.active ? 'running' : 'dead', 8)}${s.desc}`); }); info.ex = 'Liste les services ; --state=running ne garde que ceux qui tournent. Chaque service actif est une porte potentielle.'; return out; }
   const s = w.svc[name];
   if (!sub) return lxErr(info, 'systemctl: précise une action (status, start, stop…)');
@@ -10678,10 +10993,11 @@ lxcmd('systemctl', 'Pilote les services : status, start, stop, restart, enable, 
     return [`${s.active ? '●' : '○'} ${name}.service - ${s.desc}`, `     Loaded: loaded (/usr/lib/systemd/system/${name}.service; ${s.enabled ? 'enabled' : 'disabled'}; preset: enabled)`, `     Active: ${s.active ? 'active (running) since lun. 2026-10-20 09:01:07' : 'inactive (dead)'}`, s.active ? `   Main PID: ${s.pid} (${name})` : '', ''].filter((x) => x !== '');
   }
   const r = needRoot(w, info, 'systemctl'); if (r) return ['Failed to ' + sub + ' ' + name + '.service: Interactive authentication required.', '(relance avec sudo)'];
-  if (sub === 'start') { s.active = true; info.ex = 'Démarre le service maintenant (pas au prochain démarrage).'; }
+  if (sub === 'start') { if (!s.active && name === 'ssh') w.sshApplied = lxSshdEffective(w); s.active = true; info.ex = 'Démarre le service maintenant (pas au prochain démarrage).'; }
   else if (sub === 'stop') { s.active = false; info.ex = 'Arrête le service maintenant.'; }
-  else if ((sub === 'restart' || sub === 'reload') && name === 'ssh' && lxSshdErrors(lxReadRaw(w, '/etc/ssh/sshd_config'))) { const bad = lxSshdErrors(lxReadRaw(w, '/etc/ssh/sshd_config')); if (sub === 'restart') s.active = false; info.ok = false; info.ex = 'Le service refuse de démarrer : sa configuration contient une erreur. C’est exactement ce que « sudo sshd -t » permet d’éviter. Corrige la ligne, puis relance.'; return [`Job for ssh.service failed because the control process exited with error code.`, `See "systemctl status ssh.service" and "journalctl -xeu ssh.service" for details.`, `(sshd : /etc/ssh/sshd_config line ${bad.n}: ${bad.msg})`]; }
-  else if (sub === 'restart' || sub === 'reload') { s.active = true; if (name === 'ssh') w.sshApplied = lxSshdParse(lxReadRaw(w, '/etc/ssh/sshd_config')); info.ex = 'Redémarre le service : il relit sa configuration.' + (name === 'ssh' ? ' Les nouveaux réglages SSH sont appliqués.' : ''); }
+  else if ((sub === 'restart' || sub === 'reload' || sub === 'start') && name === 'ssh' && lxSshdErrorsW(w)) { const bad = lxSshdErrorsW(w); if (sub === 'restart') s.active = false; info.ok = false; info.ex = 'Le service refuse de démarrer : sa configuration contient une erreur. C’est exactement ce que « sudo sshd -t » permet d’éviter. Corrige la ligne, puis relance.'; return [`Job for ssh.service failed because the control process exited with error code.`, `See "systemctl status ssh.service" and "journalctl -xeu ssh.service" for details.`, `(sshd : ${bad.path} line ${bad.n}: ${bad.msg})`]; }
+  else if (sub === 'restart' || sub === 'reload') { s.active = true; if (name === 'ssh') w.sshApplied = lxSshdEffective(w); info.ex = 'Redémarre le service : il relit sa configuration.' + (name === 'ssh' ? ' Les nouveaux réglages SSH sont appliqués.' : ''); }
+  else if (sub === 'mask' || sub === 'unmask') { s.enabled = false; if (sub === 'mask') { s.masked = true; s.active = now ? false : s.active; } else s.masked = false; info.ex = sub === 'mask' ? 'Masque le service : il ne peut plus être démarré, même à la main.' : 'Démasque le service.'; return [sub === 'mask' ? `Created symlink /etc/systemd/system/${name}.service → /dev/null.` : `Removed "/etc/systemd/system/${name}.service".`]; }
   else if (sub === 'enable') { s.enabled = true; if (now) s.active = true; info.ex = now ? 'Active le service au démarrage ET le lance tout de suite (--now).' : 'Active le service au démarrage (il n’est pas lancé maintenant : ajoute --now).'; return [`Created symlink /etc/systemd/system/multi-user.target.wants/${name}.service → /usr/lib/systemd/system/${name}.service.`]; }
   else if (sub === 'disable') { s.enabled = false; if (now) s.active = false; info.ex = now ? 'Désactive le service au démarrage ET l’arrête tout de suite.' : 'Désactive le démarrage automatique (il tourne encore : ajoute --now).'; return [`Removed "/etc/systemd/system/multi-user.target.wants/${name}.service".`]; }
   else return lxErr(info, `systemctl: action inconnue « ${sub} »`);
@@ -10720,7 +11036,7 @@ lxcmd(['apt', 'apt-get'], 'Gère les paquets : update (rafraîchit la liste), up
 /* ---------- Réseau ---------- */
 function lxIpOf(cidr) { return cidr.split('/')[0]; }
 lxcmd('ip', 'Configure le réseau : ip addr (adresses), ip route (routes), ip link set … up/down.', (w, a, info) => {
-  const brief = a.includes('-br'); const r = a.filter((x) => x !== '-br' && x !== '-4');
+  const brief = a.includes('-br') || a.includes('-brief'); const r = a.filter((x) => !/^-(br|brief|4|6|c|color|s|d)$/.test(x));
   const obj = (r[0] || '').toLowerCase(); const verb = r[1];
   const IF = w.net.ifs;
   if (['a', 'addr', 'address'].includes(obj) && (!verb || verb === 'show')) {
@@ -10730,14 +11046,14 @@ lxcmd('ip', 'Configure le réseau : ip addr (adresses), ip route (routes), ip li
   }
   if (['a', 'addr', 'address'].includes(obj) && (verb === 'add' || verb === 'del')) {
     const e = needRoot(w, info, 'ip'); if (e) return ['RTNETLINK answers: Operation not permitted'];
-    const cidr = r[2]; const dev = r[r.indexOf('dev') + 1]; if (!IF[dev]) return lxErr(info, `Cannot find device "${dev}"`);
+    const cidr = r.slice(2).find((x) => /\//.test(x) || /^\d+\.\d+\.\d+\.\d+$/.test(x)) || r[2]; const dev = r[r.indexOf('dev') + 1]; if (!IF[dev]) return lxErr(info, `Cannot find device "${dev}"`);
     if (!/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(cidr)) return lxErr(info, 'Error: any valid prefix is expected rather than "' + cidr + '".');
     if (verb === 'add') IF[dev].addrs.push(cidr); else IF[dev].addrs = IF[dev].addrs.filter((x) => x !== cidr);
     info.ex = `${verb === 'add' ? 'Ajoute' : 'Retire'} l’adresse ${cidr} ${verb === 'add' ? 'à' : 'de'} ${dev}. Temporaire : perdu au redémarrage (rendre permanent via Netplan).`; return [];
   }
   if (obj === 'link' && verb === 'set') {
     const e = needRoot(w, info, 'ip'); if (e) return ['RTNETLINK answers: Operation not permitted'];
-    const dev = r[2]; if (!IF[dev]) return lxErr(info, `Cannot find device "${dev}"`); IF[dev].up = r[3] === 'up';
+    const rr = r.filter((x) => x !== 'dev'); const dev = rr[2]; if (!IF[dev]) return lxErr(info, `Cannot find device "${dev}"`); IF[dev].up = rr.includes('up') ? true : rr.includes('down') ? false : IF[dev].up;
     info.ex = `Active (up) ou désactive (down) l’interface ${dev}.`; return [];
   }
   if (obj === 'link') { info.ex = 'Liste les interfaces et leur adresse MAC.'; return Object.entries(IF).map(([n, i], k) => `${k + 1}: ${n}: state ${i.up ? 'UP' : 'DOWN'}  link/ether ${i.mac}`); }
@@ -10764,6 +11080,43 @@ lxcmd('ip', 'Configure le réseau : ip addr (adresses), ip route (routes), ip li
     info.ex = 'Modifie la table de routage (temporaire).'; return [];
   }
   return lxErr(info, 'Object "' + obj + '" is unknown, try "ip help".');
+});
+/* netplan apply : lit /etc/netplan/*.yaml et applique les adresses statiques (forme simplifiée). */
+function lxNetplanParse(text) {
+  const res = {}; const routes = []; let cur = null; let inAddr = false; let inRoutes = false; let ind = -1; let rt = null;
+  if (/\t/.test(text)) return { err: 'Invalid YAML: tabs are not allowed (utilise des espaces)' };
+  text.split('\n').forEach((l) => {
+    const m = /^(\s*)([\w.-]+):\s*(.*)$/.exec(l.replace(/^(\s*)-\s+/, '$1  ')); const li = /^(\s*)-\s*["']?([\d./]+)["']?\s*$/.exec(l);
+    if (li && inAddr && cur) { res[cur].push(li[2]); return; }
+    if (inRoutes && cur && m && ['to', 'via'].includes(m[2])) { if (/^\s*-/.test(l) || !rt || rt[m[2]]) { rt = { dev: cur }; routes.push(rt); } rt[m[2]] = m[3].trim().replace(/^["']|["']$/g, ''); return; }
+    if (!m) return; const depth = m[1].length;
+    if (/^(eth\d+|ens\d+|enp\w+)$/.test(m[2])) { cur = m[2]; ind = depth; res[cur] = res[cur] || []; inAddr = false; return; }
+    if (cur && depth <= ind) { cur = null; inAddr = false; }
+    if (cur && m[2] === 'routes') { inRoutes = true; inAddr = false; return; }
+    if (cur && m[2] === 'addresses') { inAddr = true; inRoutes = false; const arr = /^\[(.*)\]$/.exec(m[3].trim()); if (arr) arr[1].split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean).forEach((x) => res[cur].push(x)); return; }
+    if (cur) { inAddr = false; inRoutes = false; }
+  });
+  return { ifs: res, routes: routes.filter((r) => r.to && r.via) };
+}
+/* La configuration Netplan (tous les fichiers .yaml) donne-t-elle cette adresse à cette interface ? */
+function lxNetplanHas(w, ifn, cidr) {
+  const dir = lxNode(w, '/etc/netplan'); if (!dir) return false;
+  return Object.keys(dir.c).filter((k) => /\.ya?ml$/.test(k)).some((k) => { const r = lxNetplanParse(dir.c[k].d || ''); return !r.err && (r.ifs[ifn] || []).includes(cidr); });
+}
+lxcmd('netplan', 'Applique la configuration réseau décrite dans /etc/netplan/*.yaml : sudo netplan apply (ou netplan try).', (w, a, info) => {
+  const sub = a[0];
+  if (!['apply', 'try', 'generate', 'get'].includes(sub)) return lxErr(info, 'Usage : netplan apply | try | generate');
+  const e = needRoot(w, info, 'netplan'); if (e) return e;
+  const dir = lxNode(w, '/etc/netplan'); const files = dir ? Object.keys(dir.c).filter((k) => /\.ya?ml$/.test(k)).sort() : [];
+  const wanted = {}; const routes = [];
+  for (const f of files) { const r = lxNetplanParse(dir.c[f].d || ''); if (r.err) return lxErr(info, `/etc/netplan/${f}: ${r.err}`); Object.entries(r.ifs).forEach(([n, l]) => { wanted[n] = (wanted[n] || []).concat(l); }); routes.push(...r.routes); }
+  if (sub === 'generate') { info.ex = 'Vérifie et génère la configuration sans l’appliquer.'; return []; }
+  if (sub === 'get') return files.map((f) => dir.c[f].d || '').join('\n').replace(/\n$/, '').split('\n');
+  const bad = Object.values(wanted).flat().find((c) => !/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(c)); if (bad) return lxErr(info, `Error in network definition: invalid address « ${bad} » (forme attendue : 10.0.0.5/24)`);
+  Object.entries(wanted).forEach(([n, l]) => { const I = w.net.ifs[n]; if (!I) return; l.forEach((c) => { if (!I.addrs.includes(c)) I.addrs.push(c); }); if (l.length) I.up = true; });
+  routes.forEach((r) => { if (r.to === 'default' || r.to === '0.0.0.0/0') { w.net.gw = { via: r.via, dev: r.dev }; return; } w.net.routes = (w.net.routes || []).filter((x) => x.net !== r.to).concat([{ net: r.to, via: r.via, dev: r.dev }]); });
+  info.ex = 'Netplan applique le fichier : les interfaces décrites reçoivent leurs adresses, et cette configuration survivra au redémarrage.';
+  return sub === 'try' ? ['Do you want to keep these settings?', '', 'Configuration accepted.'] : [];
 });
 function lxReach(w, target) {
   const ip = ipNum(target); if (ip == null) return target === 'localhost';
@@ -10793,57 +11146,139 @@ lxcmd(['ss', 'netstat'], 'Liste les ports en écoute : ss -tulpn (TCP, UDP, en �
 });
 
 /* ---------- Pare-feu ufw ---------- */
-function ufwSsh(r) { return /^(22(\/tcp)?|ssh|OpenSSH)$/.test(r.to); }
-function ufwRuleText(r) { return `${padR(r.to, 26)}${padR(r.act.toUpperCase(), 11)}${r.from}`; }
-lxcmd('ufw', 'Pare-feu simplifié : default deny incoming, allow 22/tcp, enable, status verbose.', (w, a, info) => {
+const UFW_SVC = { ssh: '22', http: '80', https: '443', smtp: '25', domain: '53', dns: '53', ftp: '21', telnet: '23', ntp: '123', snmp: '161', ldap: '389', rdp: '3389', mysql: '3306', postgresql: '5432' };
+const UFW_APPS = { OpenSSH: { port: '22', proto: 'tcp' } };
+/* Analyse une règle ufw : forme simple (allow 22/tcp, allow ssh, allow OpenSSH) ou étendue
+   (allow [in|out] [on IF] [proto P] [from ADR [port P]] [to ADR [port P]] [comment C]). */
+function ufwParseRule(act, a) {
+  const r = { act, dir: 'in', from: 'Anywhere', fromAddr: 'any', toAddr: 'any', port: null, proto: null, app: null };
+  let i = 0;
+  if (a[i] === 'in' || a[i] === 'out') { r.dir = a[i]; i++; if (a[i] === 'on') { r.iface = a[i + 1]; i += 2; } }
+  if (a[i] === 'log' || a[i] === 'log-all') i++;
+  if (i >= a.length) return { err: 'ERROR: Wrong number of arguments' };
+  const portOf = (spec) => { const m = /^([^/]+)(?:\/(tcp|udp))?$/.exec(spec || ''); if (!m) return null; const p = UFW_SVC[m[1].toLowerCase()] && !/^\d/.test(m[1]) ? UFW_SVC[m[1].toLowerCase()] : m[1]; if (!/^\d+([:,]\d+)*$/.test(p)) return null; return { port: p, proto: m[2] || (UFW_SVC[m[1].toLowerCase()] && m[1].toLowerCase() === 'ssh' ? 'tcp' : null) }; };
+  if (!['proto', 'from', 'to'].includes(a[i])) {
+    const spec = a[i]; i++;
+    if (UFW_APPS[spec]) { r.app = spec; r.port = UFW_APPS[spec].port; r.proto = UFW_APPS[spec].proto; r.to = spec; }
+    else if (/^openssh$/i.test(spec)) return { err: `ERROR: Could not find a profile matching '${spec}'` };
+    else { const p = portOf(spec); if (!p) return { err: `ERROR: Bad port '${spec}'` }; r.port = p.port; r.proto = p.proto; r.to = r.port + (r.proto ? '/' + r.proto : ''); }
+  } else {
+    while (i < a.length) {
+      const k = a[i];
+      if (k === 'proto') { r.proto = a[i + 1]; i += 2; continue; }
+      if (k === 'from' || k === 'to') { const addr = a[i + 1]; if (!addr) return { err: 'ERROR: Wrong number of arguments' }; i += 2; if (k === 'from') r.fromAddr = addr; else r.toAddr = addr; if (a[i] === 'port') { const pt = a[i + 1]; i += 2; if (k === 'to') { const p = portOf(pt); if (!p) return { err: `ERROR: Bad port '${pt}'` }; r.port = p.port; if (p.proto && !r.proto) r.proto = p.proto; } else r.fromPort = pt; } else if (a[i] === 'app') { const ap = a[i + 1]; i += 2; if (!UFW_APPS[ap]) return { err: `ERROR: Could not find a profile matching '${ap}'` }; if (k === 'to') { r.app = ap; r.port = UFW_APPS[ap].port; r.proto = UFW_APPS[ap].proto; } } continue; }
+      if (k === 'comment') { r.comment = a[i + 1]; i += 2; continue; }
+      return { err: `ERROR: Invalid syntax near '${k}'` };
+    }
+    const any = (x) => !x || x === 'any' || x === '0.0.0.0/0';
+    r.to = r.app ? r.app : (any(r.toAddr) ? '' : r.toAddr + ' ') + (r.port ? r.port + (r.proto ? '/' + r.proto : '') : any(r.toAddr) ? 'Anywhere' : '');
+    r.to = r.to.trim();
+    r.from = any(r.fromAddr) ? 'Anywhere' : r.fromAddr + (r.fromPort ? ' ' + r.fromPort : '');
+  }
+  if (a[i] === 'comment') r.comment = a[i + 1];
+  return r;
+}
+function ufwPortHas(spec, port) { return String(spec || '').split(',').some((x) => { const m = /^(\d+):(\d+)$/.exec(x); return m ? +port >= +m[1] && +port <= +m[2] : String(+x) === String(+port); }); }
+/* La règle autorise-t-elle SSH entrant ? Tient compte du port réellement utilisé par sshd. */
+function ufwSsh(r, w) {
+  if (!r || r.dir === 'out') return false;
+  const port = String((w && w.sshApplied && w.sshApplied.Port) || '22');
+  if (r.port != null) return (r.proto == null || r.proto === 'tcp') && ufwPortHas(r.port, port);
+  return new RegExp('^(' + port + '(/tcp)?' + (port === '22' ? '|ssh|OpenSSH' : '') + ')$').test(r.to || '');
+}
+function ufwSame(x, y) { return x.act === y.act && x.to === y.to && x.from === y.from && (x.dir || 'in') === (y.dir || 'in'); }
+function ufwRuleText(r) { return `${padR(r.to, 26)}${padR(r.act.toUpperCase() + (r.dir === 'out' ? ' OUT' : ''), 11)}${r.from}${r.comment ? '  # ' + r.comment : ''}`; }
+lxcmd('ufw', 'Pare-feu : ufw default deny incoming, ufw allow 22/tcp (ou allow OpenSSH), ufw enable, ufw status verbose.', (w, a, info) => {
   const e = needRoot(w, info, 'ufw'); if (e) return ['ERROR: You need to be root to run this script'];
+  const force = a.includes('--force'); const dry = a.includes('--dry-run'); a = a.filter((x) => x !== '--force' && x !== '--dry-run');
   const U = w.ufw; const sub = a[0];
   if (sub === 'status') {
     if (!U.on) { info.ex = 'Le pare-feu est inactif : aucune règle n’est appliquée.'; return ['Status: inactive']; }
-    const out = ['Status: active']; if (a.includes('verbose')) out.push('Logging: on (low)', `Default: ${U.defIn} (incoming), ${U.defOut} (outgoing), disabled (routed)`, '');
-    out.push('', a.includes('numbered') ? '     To                         Action      From' : 'To                         Action      From', a.includes('numbered') ? '     --                         ------      ----' : '--                         ------      ----');
-    U.rules.forEach((r, i) => out.push((a.includes('numbered') ? `[${String(i + 1).padStart(2)}] ` : '') + ufwRuleText(r)));
-    info.ex = 'Affiche l’état du pare-feu, ses politiques par défaut (verbose) et ses règles.'; return out;
+    const num = a.includes('numbered'); const out = ['Status: active']; if (a.includes('verbose')) out.push('Logging: on (low)', `Default: ${U.defIn} (incoming), ${U.defOut} (outgoing), disabled (routed)`, 'New profiles: skip');
+    out.push('', (num ? '     ' : '') + 'To                         Action      From', (num ? '     ' : '') + '--                         ------      ----');
+    U.rules.forEach((r, i) => out.push((num ? `[${String(i + 1).padStart(2)}] ` : '') + ufwRuleText(r)));
+    info.ex = 'Affiche l’état du pare-feu, ses politiques par défaut (verbose) et ses règles (numbered : avec leur numéro).'; return out;
   }
   if (sub === 'enable') {
-    w.pend = { prompt: 'Command may disrupt existing ssh connections. Proceed with operation (y|n)? ', on: (v, out, inf) => { if (!/^y/i.test(v.trim())) { out.push('Aborted'); return; } U.on = true; out.push('Firewall is active and enabled on system startup'); inf.key = 'ufw-enabled'; inf.ex = 'Le pare-feu est actif et le restera au redémarrage.' + (U.defIn === 'deny' && !U.rules.some((r) => ufwSsh(r) && r.act !== 'deny' && r.act !== 'reject') ? ' Attention : SSH n’est pas autorisé, une session distante serait coupée !' : ''); } };
+    const sshOk = U.rules.some((r) => (r.act === 'allow' || r.act === 'limit') && ufwSsh(r, w));
+    const warn = sshOk ? '' : ' Attention : aucune règle n’autorise SSH. Sur un serveur distant, tu viendrais de te couper l’accès !';
+    if (force) { U.on = true; info.ex = 'Active le pare-feu sans demander de confirmation (--force).' + warn; return ['Firewall is active and enabled on system startup']; }
+    w.pend = { prompt: 'Command may disrupt existing ssh connections. Proceed with operation (y|n)? ', on: (v, out, inf) => { if (!/^y/i.test(v.trim())) { out.push('Aborted'); return; } U.on = true; out.push('Firewall is active and enabled on system startup'); inf.ex = 'Le pare-feu est actif et redémarrera avec le système.' + warn; } };
     info.ex = 'ufw prévient : sans règle pour SSH, une session distante serait coupée.'; return [];
   }
   if (sub === 'disable') { U.on = false; info.ex = 'Désactive le pare-feu.'; return ['Firewall stopped and disabled on system startup']; }
-  if (sub === 'app') { if (a[1] === 'list') { info.ex = 'Profils d’applications connus de ufw : « OpenSSH » correspond à 22/tcp.'; return ['Available applications:', '  OpenSSH']; } if (a[1] === 'info') return ['Profile: OpenSSH', 'Title: Secure shell server, an rshd replacement', '', 'Port:', '  22/tcp']; return lxErr(info, 'ERROR: Usage: ufw app list | ufw app info PROFIL'); }
-  if (sub === 'default') { const pol = a[1]; const dir = a[2] || 'incoming'; if (!['deny', 'allow', 'reject'].includes(pol) || !['incoming', 'outgoing'].includes(dir)) return lxErr(info, 'ERROR: Usage: ufw default allow|deny|reject incoming|outgoing'); if (dir === 'incoming') U.defIn = pol; else U.defOut = pol; U.defSet = Object.assign({}, U.defSet, { [dir]: true }); info.ex = `Politique par défaut pour le trafic ${dir === 'incoming' ? 'entrant' : 'sortant'} : ${pol}. ${pol === 'deny' && dir === 'incoming' ? 'C’est le refus par défaut : rien n’entre sauf ce que tu autorises.' : ''}`; return [`Default ${dir} policy changed to '${pol}'`, '(be sure to update your rules accordingly)']; }
-  if (sub === 'delete') { const n = +a[1]; if (!U.rules[n - 1]) return lxErr(info, 'ERROR: Could not find rule ' + a[1]); U.rules.splice(n - 1, 1); info.ex = 'Supprime la règle numéro ' + n + '.'; return ['Rule deleted']; }
-  if (['allow', 'deny', 'limit', 'reject'].includes(sub)) {
-    let to, from = 'Anywhere';
-    if (a[1] === 'from') { from = a[2]; const pi = a.indexOf('port'); const pr = a.indexOf('proto'); to = pi >= 0 ? a[pi + 1] + (pr >= 0 ? '/' + a[pr + 1] : '') : 'Anywhere'; }
-    else { const t0 = a[1] === 'in' || a[1] === 'out' ? a[2] : a[1]; if (/^openssh$/i.test(t0 || '') && t0 !== 'OpenSSH') return lxErr(info, `ERROR: Could not find a profile matching '${t0}'`); to = t0 === 'ssh' ? '22/tcp' : t0; }
-    if (!to) return lxErr(info, 'ERROR: Wrong number of arguments');
-    U.rules.push({ act: sub, to, from }); info.ex = `Ajoute une règle : ${sub === 'allow' ? 'autoriser' : sub === 'limit' ? 'autoriser en limitant les connexions répétées vers' : 'refuser'} ${to}${from !== 'Anywhere' ? ' depuis ' + from : ''}.`;
-    return ['Rule added', 'Rule added (v6)'];
+  if (sub === 'reload') { info.ex = 'Recharge les règles.'; return [U.on ? 'Firewall reloaded' : 'Firewall not enabled (skipping reload)']; }
+  if (sub === 'reset') {
+    const doReset = (out) => { U.on = false; U.rules = []; U.defIn = 'deny'; U.defOut = 'allow'; U.defSet = {}; out.push('Backing up \'user.rules\' to \'/etc/ufw/user.rules.20261020_090000\''); };
+    if (force) { const out = []; doReset(out); info.ex = 'Remet le pare-feu à zéro : désactivé, sans règle.'; return out; }
+    w.pend = { prompt: 'Resetting all rules to installed defaults. Proceed with operation (y|n)? ', on: (v, out, inf) => { if (!/^y/i.test(v.trim())) { out.push('Aborted'); return; } doReset(out); inf.ex = 'Pare-feu remis à zéro : désactivé, sans règle.'; } };
+    return [];
+  }
+  if (sub === 'logging') { U.logging = a[1] || 'on'; info.ex = 'Active la journalisation des paquets bloqués (/var/log/ufw.log).'; return [`Logging ${U.logging === 'off' ? 'disabled' : 'enabled'}`]; }
+  if (sub === 'app') { if (a[1] === 'list') { info.ex = 'Profils d’applications connus de ufw : « OpenSSH » correspond à 22/tcp.'; return ['Available applications:', '  OpenSSH']; } if (a[1] === 'info') return ['Profile: OpenSSH', 'Title: Secure shell server, an rshd replacement', 'Description: OpenSSH is a free implementation of the Secure Shell protocol.', '', 'Port:', '  22/tcp']; return lxErr(info, 'ERROR: Usage: ufw app list|info PROFIL'); }
+  if (sub === 'default') { const pol = a[1]; const dir = a[2] || 'incoming'; if (!['deny', 'allow', 'reject'].includes(pol) || !['incoming', 'outgoing', 'routed'].includes(dir)) return lxErr(info, 'ERROR: Usage: ufw default allow|deny|reject incoming|outgoing'); if (dir === 'routed') return [`Default routed policy changed to '${pol}'`]; if (dir === 'incoming') U.defIn = pol; else U.defOut = pol; U.defSet = Object.assign({}, U.defSet, { [dir]: true }); info.ex = `Politique par défaut pour le trafic ${dir === 'incoming' ? 'entrant' : 'sortant'} : ${pol}. ${pol !== 'allow' && dir === 'incoming' ? 'C’est le refus par défaut : rien n’entre sauf ce que tu autorises.' : ''}`; return [`Default ${dir} policy changed to '${pol}'`, '(be sure to update your rules accordingly)']; }
+  if (sub === 'delete') {
+    if (/^\d+$/.test(a[1] || '')) { const n = +a[1]; if (!U.rules[n - 1]) return lxErr(info, 'ERROR: Could not find rule ' + a[1]); const r = U.rules[n - 1]; if (!force) { w.pend = { prompt: `Deleting:\n ${r.act} ${r.to}\nProceed with operation (y|n)? `, on: (v, out, inf) => { if (!/^y/i.test(v.trim())) { out.push('Aborted'); return; } U.rules.splice(n - 1, 1); out.push('Rule deleted'); inf.ex = 'Règle supprimée.'; } }; return []; } U.rules.splice(n - 1, 1); info.ex = 'Supprime la règle numéro ' + n + '.'; return ['Rule deleted']; }
+    const r = ufwParseRule(a[1], a.slice(2)); if (r.err) return lxErr(info, r.err); const k = U.rules.findIndex((x) => ufwSame(x, r)); if (k < 0) return lxErr(info, 'Could not delete non-existent rule'); U.rules.splice(k, 1); info.ex = 'Supprime la règle correspondante.'; return ['Rule deleted'];
+  }
+  let pos = null; let b = a;
+  if (sub === 'insert') { pos = +a[1] - 1; b = a.slice(2); if (!(pos >= 0)) return lxErr(info, 'ERROR: Invalid position'); }
+  else if (sub === 'prepend') { pos = 0; b = a.slice(1); }
+  if (['allow', 'deny', 'limit', 'reject'].includes(b[0])) {
+    const r = ufwParseRule(b[0], b.slice(1)); if (r.err) return lxErr(info, r.err);
+    if (dry) { info.ex = 'Simulation (--dry-run) : rien n’est appliqué.'; return ['(dry-run) ' + ufwRuleText(r)]; }
+    if (U.rules.some((x) => ufwSame(x, r))) { info.ex = 'Cette règle existe déjà.'; return ['Skipping adding existing rule']; }
+    if (pos != null) U.rules.splice(Math.min(pos, U.rules.length), 0, r); else U.rules.push(r);
+    const verb = r.act === 'allow' ? 'autoriser' : r.act === 'limit' ? 'autoriser en limitant les connexions répétées vers' : 'refuser';
+    info.ex = `Ajoute une règle${pos != null ? ' en position ' + (pos + 1) + ' (les règles sont lues dans l’ordre)' : ''} : ${verb} ${r.to}${r.from !== 'Anywhere' ? ' depuis ' + r.from : ''}${r.dir === 'out' ? ' (trafic sortant)' : ''}.`;
+    return [pos != null ? 'Rule inserted' : 'Rule added', pos != null ? 'Rule inserted (v6)' : 'Rule added (v6)'];
   }
   return lxErr(info, 'ERROR: Invalid syntax');
 });
 
 /* ---------- SSH ---------- */
-lxcmd('ssh-keygen', 'Génère une paire de clés SSH. -t ed25519 pour l’algorithme recommandé.', (w, a, info) => {
-  const ti = a.indexOf('-t'); const type = ti >= 0 ? a[ti + 1] : 'rsa'; const home = lxHome(w); const def = `${home}/.ssh/id_${type}`;
+lxcmd('ssh-keygen', 'Génère une paire de clés SSH. -t ed25519 (algorithme recommandé, par défaut), -f fichier, -C commentaire, -N phrase de passe.', (w, a, info) => {
+  const opt = (f) => { const i = a.indexOf(f); return i >= 0 ? a[i + 1] : null; };
+  const type = (opt('-t') || 'ed25519').toLowerCase();
+  if (!['ed25519', 'rsa', 'ecdsa', 'ed25519-sk', 'ecdsa-sk'].includes(type)) return lxErr(info, `unknown key type ${type}`);
+  const bits = opt('-b'); if (type === 'rsa' && bits && +bits < 2048) return lxErr(info, `Invalid RSA key length: minimum is 1024 bits${+bits >= 1024 ? ' (2048 recommandé au minimum)' : ''}`);
+  const home = lxHome(w); const def = `${home}/.ssh/id_${type.replace('-sk', '_sk')}`; const comment = opt('-C') || `${w.user}@${w.host}`; const fileArg = opt('-f'); const pass = a.includes('-N') ? (opt('-N') || '') : null;
   const make = (path, out) => {
-    const uid = lxCurUid(w); const hn = lxNode(w, home); if (!hn.c['.ssh']) hn.c['.ssh'] = fD(0o700, uid, uid); const sd = hn.c['.ssh'];
-    const base = path.split('/').pop(); sd.c[base] = fF(0o600, uid, uid, '-----BEGIN OPENSSH PRIVATE KEY-----\n(clé privée simulée)\n-----END OPENSSH PRIVATE KEY-----\n'); sd.c[base + '.pub'] = fF(0o644, uid, uid, `ssh-${type} AAAAC3Nza${sha256(path).slice(0, 40)} ${w.user}@${w.host}\n`);
-    out.push(`Your identification has been saved in ${path}`, `Your public key has been saved in ${path}.pub`, 'The key fingerprint is:', `SHA256:${sha256(path).slice(0, 43)} ${w.user}@${w.host}`);
+    const uid = lxCurUid(w); const gid = (w.users[w.user] || {}).gid || uid;
+    const p = lxParent(w, path);
+    if (!p.dir && p.parentPath === home + '/.ssh') { lxNode(w, home).c['.ssh'] = fD(0o700, uid, gid); out.push(`Created directory '${home}/.ssh'.`); }
+    const pp = lxParent(w, path); if (!pp.dir || pp.dir.t !== 'd') { out.push(`Saving key "${path}" failed: No such file or directory`); return false; }
+    if (!lxCan(w, pp.dir, uid, 2)) { out.push(`Saving key "${path}" failed: Permission denied`); return false; }
+    pp.dir.c[pp.name] = fF(0o600, uid, gid, '-----BEGIN OPENSSH PRIVATE KEY-----\n(clé privée simulée)\n-----END OPENSSH PRIVATE KEY-----\n');
+    pp.dir.c[pp.name + '.pub'] = fF(0o644, uid, gid, `${type === 'rsa' ? 'ssh-rsa AAAAB3NzaC1yc2E' : type.startsWith('ecdsa') ? 'ecdsa-sha2-nistp256 AAAAE2VjZHNh' : 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5'}${sha256(path).slice(0, 40)} ${comment}\n`);
+    w.lastEdit = path;
+    out.push(`Your identification has been saved in ${path}`, `Your public key has been saved in ${path}.pub`, 'The key fingerprint is:', `SHA256:${sha256(path).slice(0, 43)} ${comment}`);
+    return true;
   };
-  w.pend = { prompt: `Enter file in which to save the key (${def}): `, on: (f, out) => { const path = f.trim() || def; w.pend = { prompt: 'Enter passphrase (empty for no passphrase): ', secret: true, on: (p1) => { w.pend = { prompt: 'Enter same passphrase again: ', secret: true, on: (p2, out2, inf) => { make(path, out2); inf.key = 'ssh-keygen-ok'; inf.ex = 'Paire créée : la clé privée (600, ne jamais la partager) et la clé publique .pub (à copier sur les serveurs).' + (p1 ? ' Ta clé privée est protégée par une phrase de passe.' : ' Sans phrase de passe, quiconque copie ce fichier peut l’utiliser.'); } }; } }; } };
-  info.ex = `Génère une paire de clés ${type}. Appuie sur Entrée pour l’emplacement par défaut, puis choisis une phrase de passe.`;
-  return [`Generating public/private ${type} key pair.`];
+  const askPass = (path) => {
+    if (pass != null) { const out = []; make(path, out); return out; }
+    w.pend = { prompt: 'Enter passphrase (empty for no passphrase): ', secret: true, on: (p1, out) => { w.pend = { prompt: 'Enter same passphrase again: ', secret: true, on: (p2, out2, inf) => { if (p1 !== p2) { out2.push('Passphrases do not match.  Try again.'); inf.ok = false; return; } if (!p1) out2.push('[Trame] Sans phrase de passe, quiconque copie ce fichier peut utiliser ta clé. Une phrase de passe la protège.'); if (make(path, out2)) { inf.keygen = path; inf.ex = 'Paire de clés créée : la clé privée (600) reste ici, la clé publique (.pub) se copie sur les serveurs (ssh-copy-id).'; } else inf.ok = false; } }; } };
+    return [];
+  };
+  const withPath = (path) => {
+    const abs = lxResolve(path, w.cwd, home);
+    if (lxNode(w, abs)) { w.pend = { prompt: `${abs} already exists.\nOverwrite (y/n)? `, on: (v, out, inf) => { if (!/^y/i.test(v.trim())) { out.push('[Trame] Clé existante conservée.'); return; } out.push(...askPass(abs)); if (pass != null) inf.keygen = abs; } }; return []; }
+    const r = askPass(abs); if (pass != null) info.keygen = abs; return r;
+  };
+  info.ex = `Génère une paire de clés ${type}${type === 'ed25519' ? ' (l’algorithme recommandé aujourd’hui)' : ''}. Entrée pour l’emplacement par défaut, puis choisis une phrase de passe.`;
+  const head = a.includes('-q') ? [] : [`Generating public/private ${type} key pair.`];
+  if (fileArg) return head.concat(withPath(fileArg));
+  w.pend = { prompt: `Enter file in which to save the key (${def}): `, on: (f, out, inf) => { const r = withPath(f.trim() || def); out.push(...r); if (inf.ok !== false && pass != null && !w.pend) inf.keygen = lxResolve(f.trim() || def, w.cwd, home); } };
+  return head;
 });
 lxcmd('sshd', 'Serveur SSH. « sshd -t » vérifie la syntaxe de la configuration sans redémarrer ; « sshd -T » affiche les valeurs retenues.', (w, a, info) => {
   const test = a.includes('-t'); const dump = a.includes('-T');
   if (!test && !dump) return lxErr(info, 'Usage dans ce labo : sudo sshd -t (vérifier) ou sudo sshd -T (valeurs effectives)');
   const e = needRoot(w, info, 'sshd'); if (e) return e;
-  const txt = lxReadRaw(w, '/etc/ssh/sshd_config') || '';
-  const bad = lxSshdErrors(txt);
+  const txt = lxSshdText(w);
+  const bad = lxSshdErrorsW(w);
   info.key = test ? 'sshd -t' : 'sshd -T';
-  if (bad) { info.ok = false; info.ex = 'Erreur dans la configuration : corrige la ligne indiquée avant de redémarrer le service, sinon SSH ne repartirait pas.'; return [`/etc/ssh/sshd_config line ${bad.n}: ${bad.msg}`, '/etc/ssh/sshd_config: terminating, 1 bad configuration options']; }
+  if (bad) { info.ok = false; info.ex = 'Erreur dans la configuration : corrige la ligne indiquée avant de redémarrer le service, sinon SSH ne repartirait pas.'; return [`${bad.path} line ${bad.n}: ${bad.msg}`, `${bad.path}: terminating, 1 bad configuration options`]; }
   info.sshdOk = true;
   if (dump) { const c = lxSshdParse(txt); info.ex = 'Affiche la configuration effective, telle que sshd la comprend (mots-clés en minuscules). Pratique pour vérifier qu’une ligne en double n’annule pas ton réglage : c’est la première occurrence qui compte.'; return Object.keys(c).map((k) => `${k.toLowerCase()} ${c[k]}`); }
   info.ex = 'Aucun message = configuration valide. Tu peux redémarrer le service sans risque.'; return [];
@@ -10856,12 +11291,15 @@ lxcmd(['nano', 'vi', 'vim'], 'Éditeur de texte. Ctrl+O enregistre, Ctrl+X quitt
   if (n && n.t === 'd') return lxErr(info, `nano: ${f} est un dossier`);
   if (n && !lxCan(w, n, uid, 4)) return lxErr(info, `nano: ${f}: Permission non accordée`);
   const readOnly = n ? !lxCan(w, n, uid, 2) : !lxCan(w, lxParent(w, abs).dir || w.fs, uid, 2);
-  info.nano = { path: abs, content: n ? (n.d || '') : '', readOnly, onSave: (text) => { if (readOnly) return { err: true, text: `[ Erreur à l’écriture de ${f} : Permission non accordée — ouvre-le avec sudo nano ]` }; const prev = w.user; w.user = asUser; const err = lxWrite(w, abs, text, false); w.user = prev; if (err) return { err: true, text: err }; if (abs === '/etc/ssh/sshd_config') { const c = lxSshdParse(text); return { text: `[ ${text.split('\n').length} lignes écrites ]`, note: `[Trame] sshd lira : PermitRootLogin ${c.PermitRootLogin} · PasswordAuthentication ${c.PasswordAuthentication} · MaxAuthTries ${c.MaxAuthTries} (seule la première occurrence de chaque mot-clé compte)` }; } return null; } };
+  info.nano = { path: abs, content: n ? (n.d || '') : '', readOnly, onSave: (text) => { if (readOnly) return { err: true, text: `[ Erreur à l’écriture de ${f} : Permission non accordée — ouvre-le avec sudo nano ]` }; const prev = w.user; w.user = asUser; const err = lxWrite(w, abs, text, false); w.user = prev; if (err) return { err: true, text: err }; if (/^\/etc\/ssh\/sshd_config(\.d\/|$)/.test(abs)) { const c = lxSshdEffective(w); return { text: `[ ${text.split('\n').length} lignes écrites ]`, note: `[Trame] sshd lira : PermitRootLogin ${c.PermitRootLogin} · PasswordAuthentication ${c.PasswordAuthentication} · MaxAuthTries ${c.MaxAuthTries} (seule la première occurrence de chaque mot-clé compte)` }; } return null; } };
   info.ex = `Ouvre ${f} dans l’éditeur.${readOnly ? ' Lecture seule : il faut sudo pour enregistrer ce fichier.' : ''}`;
   return [];
 });
-lxcmd('crontab', 'Tâches planifiées : crontab -e pour éditer, crontab -l pour lister.', (w, a, info) => {
+lxcmd('crontab', 'Tâches planifiées : crontab -e pour éditer, crontab -l pour lister.', (w, a, info, stdin) => {
   const u = w.user;
+  const src = a.find((x) => x === '-' || !x.startsWith('-'));
+  if (src) { let text; if (src === '-') text = stdin || ''; else { const r = lxReadFor(w, 'crontab', src); if (r.err) return lxErr(info, r.err); text = r.text; } w.cron[u] = text.endsWith('\n') ? text : text + '\n'; info.ex = 'Installe la table de tâches à partir de ' + (src === '-' ? 'l’entrée standard' : src) + ' (elle REMPLACE la précédente).'; return []; }
+  if (a.includes('-r')) { w.cron[u] = ''; info.ex = 'Supprime toute ta table de tâches.'; return []; }
   if (a.includes('-l')) { info.ex = 'Affiche tes tâches planifiées.'; return w.cron[u] ? w.cron[u].replace(/\n$/, '').split('\n') : [`no crontab for ${u}`]; }
   if (a.includes('-e')) {
     const tmpl = w.cron[u] || '# m h  dom mon dow   commande\n# Exemple : 0 2 * * * /home/etudiant/sauvegarde.sh\n';
@@ -10887,16 +11325,25 @@ function lxScript(w, path, info, needX) {
   if (!lxCan(w, n, uid, 4)) { info.ok = false; return [`bash: ${path}: Permission non accordée`]; }
   if (needX && !lxCan(w, n, uid, 1)) { info.ok = false; info.ex = 'Le fichier n’a pas le droit d’exécution : chmod +x ' + path; return [`bash: ${path}: Permission non accordée`]; }
   const out = []; info.key = 'script'; info.script = abs;
-  for (const raw of (n.d || '').split('\n')) {
-    const l = raw.trim(); if (!l || l.startsWith('#')) continue;
+  lxScriptLines(w, (n.d || '').split('\n'), out);
+  info.ex = `Exécute ${path} ligne par ligne.`; return out;
+}
+/* Exécute des lignes de script ; si une ligne ouvre une invite (sudo…), la suite reprend après la réponse. */
+function lxScriptLines(w, lines, out) {
+  for (let k = 0; k < lines.length; k++) {
+    const l = lines[k].trim(); if (!l || l.startsWith('#')) continue;
     if (/^(if|for|while|case|function)\b/.test(l) || /^(then|do|done|fi|else|esac)\b/.test(l)) { out.push('[Trame] Les structures if/for/while ne sont pas simulées : teste-les sur ta machine.'); continue; }
     const asg = /^([A-Za-z_]\w*)=(.*)$/.exec(l);
     if (asg) { let v = asg[2].replace(/^"|"$/g, ''); v = v.replace(/\$\(date \+%F\)/g, localISO()).replace(/\$\(([^)]+)\)/g, (m, c) => { const r = lxExec(w, c); return r.out.join(' '); }); w.env[asg[1]] = lxExpand(w, v); continue; }
     const r = lxExec(w, l.replace(/\$\(date \+%F\)/g, localISO())); out.push(...r.out);
+    if (w.pend) { const rest = lines.slice(k + 1); lxDefer(w, (o2) => lxScriptLines(w, rest, o2)); return; }
   }
-  info.ex = `Exécute ${path} ligne par ligne.`; return out;
 }
-lxcmd('exit', 'Ferme la session.', (w) => ['déconnexion', `[Trame] Session rouverte : ${w.user}@${w.host}`]);
+lxcmd(['exit', 'logout'], 'Ferme le shell courant (et quitte le shell root ouvert par sudo -i).', (w, a, info) => {
+  if (w.suStack && w.suStack.length) { const p = w.suStack.pop(); w.user = p.user; w.cwd = p.cwd; info.ex = `Retour à ${w.user}.`; return ['déconnexion']; }
+  if (w.rootShell) { const p = w.rootShell; w.rootShell = null; w.user = p.user; w.cwd = p.cwd; info.ex = `Tu quittes le shell root : tu es de nouveau ${w.user} (prompt en $).`; return ['déconnexion']; }
+  return ['déconnexion', `[Trame] Session rouverte : ${w.user}@${w.host}`];
+});
 
 /* ---------- Complétion Tab ---------- */
 function lxComplete(w, text) {
@@ -10919,23 +11366,72 @@ TERM_KINDS.linux = {
 'use strict';
 /* =====================================================================
    TRAME — labos Linux guidés
+   Chaque étape vérifie un RÉSULTAT (état du système, fichier, règle…), pas une écriture précise :
+   toute méthode correcte est acceptée (nano, sed, tee, drop-in, sudo -i, &&…). Les étapes
+   « observer » acceptent toutes les commandes qui montrent l’information demandée.
    ===================================================================== */
-/* Dernière commande tapée ; un « sudo » devant est accepté. */
-const lxUnsudo = (line) => String(line || '').replace(/^\s*sudo\s+(?:-\S+\s+)*/, '');
-const lxLast = (l, re) => !!(l && l.line && (re.test(l.line) || re.test(lxUnsudo(l.line))));
-/* « ls » en format long sur un chemin donné, quelle que soit l’écriture : ls -l ~/.ssh, ls -al .ssh,
-   ls -l -a /home/etudiant/.ssh/, sudo ls -lh …, ou « ls -l » lancé depuis le dossier lui-même. */
+const lxUnsudo = (line) => String(line || '').replace(/^\s*sudo\s+(?:-[EHkS]+\s+)*/, '');
+/* Morceaux d’une ligne enchaînée (a && b ; c), sudo retiré ; les tubes restent dans le morceau. */
+function lxParts(l) { if (!l || !l.line) return []; return lxTopSplit(String(l.line), 'chain').map((p) => lxUnsudo(p.s.trim())).filter(Boolean); }
+/* Commandes simples de la ligne (enchaînements ET tubes séparés), sudo retiré. */
+function lxCmds(l) { return lxParts(l).flatMap((p) => lxTopSplit(p, 'pipe')).map((x) => lxUnsudo(x.trim())).filter(Boolean); }
+const lxLast = (l, re) => lxParts(l).some((s) => re.test(s));
+const lxArgv = (w, s) => lxSplit(s).map((x) => lxExpand(w, x));
+const lxAbs = (w, p) => lxResolve(p, w.cwd, lxHome(w)).replace(/\/+$/, '') || '/';
+/* Une commande de la ligne a-t-elle porté sur un chemin correspondant à re ? */
+const LX_READERS = ['cat', 'less', 'more', 'view', 'head', 'tail', 'grep', 'awk', 'sed', 'cut', 'sort', 'wc', 'nl', 'tac', 'stat'];
+function lxTouches(w, l, re, cmds = LX_READERS) {
+  return lxCmds(l).some((s) => { const t = lxArgv(w, s); if (!cmds.includes(t[0])) return false; return t.slice(1).filter((x) => x && !x.startsWith('-')).some((x) => re.test(lxAbs(w, x))); });
+}
+/* « ls » (ou ll, ou stat) qui affiche les droits d’un chemin : ls -l ~/.ssh, ls -al .ssh/, ll ~/.ssh/id_ed25519,
+   stat ~/.ssh/*, ou « ls -l » lancé depuis le dossier lui-même. */
 function lxLsShows(w, l, re, long = true) {
   if (!l || !l.line || l.ok === false) return false;
-  const t = lxSplit(lxUnsudo(l.line)); if (t[0] !== 'ls') return false;
-  const flags = t.slice(1).filter((x) => /^-[A-Za-z]/.test(x)).join('');
-  if (long && !/l/.test(flags)) return false;
-  const targets = t.slice(1).filter((x) => !x.startsWith('-'));
-  const home = (w.users[w.user] && w.users[w.user].home) || lxHome(w);
-  return (targets.length ? targets : ['.']).some((x) => re.test(lxResolve(x.replace(/^~(?=$|\/)/, home), w.cwd, home).replace(/\/+$/, '') || '/'));
+  return lxCmds(l).some((s) => {
+    const t = lxArgv(w, s); let cmd = t[0]; let flags = t.slice(1).filter((x) => /^-[A-Za-z]/.test(x)).join('');
+    if (cmd === 'll') { cmd = 'ls'; flags += 'l'; } else if (cmd === 'la') cmd = 'ls';
+    if (cmd === 'stat') flags += 'l'; else if (cmd !== 'ls') return false;
+    if (long && !/l/.test(flags)) return false;
+    const targets = t.slice(1).filter((x) => !x.startsWith('-'));
+    return (targets.length ? targets : ['.']).some((x) => re.test(lxAbs(w, x)));
+  });
 }
 const lxFile = (w, p) => lxNode(w, p);
 const lxRead = (w, p) => { const n = lxNode(w, p); return n && n.t === 'f' ? n.d || '' : null; };
+/* Paires de clés SSH d’un compte (n’importe où dans son dossier, ~/.ssh en général). */
+function lxUserKeys(w, user) {
+  const u = w.users[user]; if (!u) return []; const out = [];
+  const walk = (node, path, d) => { if (!node || node.t !== 'd' || d > 4) return; Object.keys(node.c).forEach((k) => { const ch = node.c[k]; const p = path + '/' + k; if (ch.t === 'd') walk(ch, p, d + 1); else if (k.endsWith('.pub') && node.c[k.slice(0, -4)] && node.c[k.slice(0, -4)].t === 'f') out.push({ pub: p, priv: p.slice(0, -4), type: (ch.d || '').split(/\s+/)[0] || '' }); }); };
+  walk(lxNode(w, u.home), u.home, 0); return out;
+}
+/* Tâches planifiées : crontab des comptes, /etc/crontab et /etc/cron.d (le champ « utilisateur » y est ignoré). */
+function lxCronHas(w, re) {
+  const tabs = Object.values(w.cron || {}).map((t) => t || '');
+  const sys = []; const et = lxReadRaw(w, '/etc/crontab'); if (et) sys.push(et);
+  const cd = lxNode(w, '/etc/cron.d'); if (cd && cd.t === 'd') Object.values(cd.c).forEach((n) => { if (n.t === 'f') sys.push(n.d || ''); });
+  return tabs.concat(sys.map((t) => t.split('\n').map((x) => (/^\s*#/.test(x) ? x : x.replace(/^(\s*(?:\S+\s+){5})[a-z_][\w-]*\s+/, '$1'))).join('\n'))).some((t) => re.test(t));
+}
+/* Archives présentes dans le dossier de l’étudiant */
+function lxArchives(w, root = '/home/etudiant') {
+  const out = []; const walk = (n, p, d) => { if (!n || n.t !== 'd' || d > 5) return; Object.keys(n.c).forEach((k) => { const c = n.c[k]; const q = p + '/' + k; if (c.t === 'd') walk(c, q, d + 1); else if (/\.(tar\.gz|tgz|tar|tar\.bz2|tar\.xz|zip)$/.test(k)) out.push(q); }); };
+  walk(lxNode(w, root), root, 0); return out;
+}
+/* Fichiers de l’étudiant (hors journaux) qui contiennent un motif */
+function lxHomeFilesWith(w, re, root = '/home/etudiant') {
+  const out = []; const walk = (n, p, d) => { if (!n || n.t !== 'd' || d > 5) return; Object.keys(n.c).forEach((k) => { const c = n.c[k]; const q = p + '/' + k; if (c.t === 'd') walk(c, q, d + 1); else if (re.test(c.d || '')) out.push(q); }); };
+  walk(lxNode(w, root), root, 0); return out;
+}
+/* Pourquoi la configuration SSH n’a pas (encore) l’effet voulu */
+function lxSshDiag(w, want) {
+  const c = lxSshdEffective(w); const msgs = [];
+  Object.keys(want).forEach((k) => {
+    if (c[k] === want[k]) return;
+    const o = lxSshdOrigin(w, k);
+    msgs.push(o ? `${k} vaut encore « ${c[k]} » pour sshd : il retient la PREMIÈRE occurrence, ligne ${o.n} de ${o.path} (« ${o.line} »). Modifie cette ligne (ou supprime-la) plutôt que d’en ajouter une autre plus bas.` : `${k} n’est défini nulle part : la valeur par défaut « ${c[k]} » s’applique. Ajoute « ${k} ${want[k]} ».`);
+  });
+  return msgs.join(' ');
+}
+const lxSshdLive = (w) => !!(w.svc.ssh && w.svc.ssh.active && w.sshApplied) && JSON.stringify(w.sshApplied) === JSON.stringify(lxSshdEffective(w));
 
 /* 1. Premiers pas */
 scen({
@@ -10943,15 +11439,15 @@ scen({
   intro: 'Repère-toi dans l’arborescence, crée un dossier de travail et manipule quelques fichiers.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Où suis-je ?', goal: '<p>Affiche le dossier courant : <code>pwd</code>.</p>', hint: 'pwd', check: (w, l) => lxLast(l, /^pwd\b/), why: 'Tu es dans /home/etudiant, ton dossier personnel (abrégé ~ dans le prompt).' },
-    { t: 'Lister', goal: '<p>Liste son contenu, fichiers cachés compris, en format long : <code>ls -la</code>.</p>', hint: 'ls -la', check: (w, l) => lxLast(l, /^ls\s+.*-[a-z]*a/) && /l/.test(l.line), why: 'Chaque ligne donne droits, propriétaire, groupe, taille et date. Les noms commençant par un point sont cachés.' },
-    { t: 'Se déplacer', goal: '<p>Entre dans <code>documents</code> puis lis le fichier de notes : <code>cd documents</code>, <code>cat notes.txt</code>.</p>', hint: ['cd documents', 'cat notes.txt'], check: (w, l) => w.cwd === '/home/etudiant/documents' && lxLast(l, /^cat\s+notes\.txt/), why: 'Chemin relatif : documents est cherché depuis le dossier courant.' },
+    { t: 'Où suis-je ?', goal: '<p>Affiche le dossier courant : <code>pwd</code>.</p>', hint: 'pwd', check: (w, l) => lxLast(l, /^pwd\b/) || lxLast(l, /^echo\s+\$PWD\b/), why: 'Tu es dans /home/etudiant, ton dossier personnel (abrégé ~ dans le prompt).' },
+    { t: 'Lister', goal: '<p>Liste son contenu, fichiers cachés compris, en format long : <code>ls -la</code>.</p>', hint: 'ls -la', check: (w, l) => lxCmds(l).some((s) => { const t = lxArgv(w, s); const f = t.slice(1).filter((x) => /^-[A-Za-z]/.test(x)).join(''); return t[0] === 'll' || (t[0] === 'ls' && /l/.test(f) && /[aA]/.test(f)); }), why: 'Chaque ligne donne droits, propriétaire, groupe, taille et date. Les noms commençant par un point sont cachés.' },
+    { t: 'Se déplacer', goal: '<p>Entre dans <code>documents</code> puis lis le fichier de notes : <code>cd documents</code>, <code>cat notes.txt</code>.</p>', hint: ['cd documents', 'cat notes.txt'], check: (w, l) => l.ok !== false && lxTouches(w, l, /^\/home\/etudiant\/documents\/notes\.txt$/), why: 'Chemin relatif : documents est cherché depuis le dossier courant.' },
     { t: 'Créer un dossier', goal: '<p>Reviens dans ton dossier personnel et crée <code>projets/audit</code> en une commande : <code>cd</code> puis <code>mkdir -p projets/audit</code>.</p>', hint: ['cd', 'mkdir -p projets/audit'], check: (w) => { const n = lxFile(w, '/home/etudiant/projets/audit'); return !!(n && n.t === 'd'); }, why: '-p crée aussi le dossier parent « projets » qui n’existait pas.' },
-    { t: 'Écrire dans un fichier', goal: '<p>Crée un fichier avec une ligne : <code>echo "Audit du serveur web" &gt; projets/audit/plan.txt</code>.</p>', hint: 'echo "Audit du serveur web" > projets/audit/plan.txt', check: (w) => /Audit/.test(lxRead(w, '/home/etudiant/projets/audit/plan.txt') || ''), why: '> envoie la sortie d’echo dans le fichier (en l’écrasant s’il existait).' },
-    { t: 'Ajouter une ligne', goal: '<p>Ajoute une seconde ligne sans écraser : <code>echo "1. Mises à jour" &gt;&gt; projets/audit/plan.txt</code>, puis affiche le fichier.</p>', hint: ['echo "1. Mises à jour" >> projets/audit/plan.txt', 'cat projets/audit/plan.txt'], check: (w) => (lxRead(w, '/home/etudiant/projets/audit/plan.txt') || '').trim().split('\n').length >= 2, why: '>> ajoute à la fin au lieu d’écraser.' },
+    { t: 'Écrire dans un fichier', goal: '<p>Crée un fichier avec une ligne : <code>echo "Audit du serveur web" &gt; projets/audit/plan.txt</code>.</p>', hint: 'echo "Audit du serveur web" > projets/audit/plan.txt', check: (w) => /\S/.test(lxRead(w, '/home/etudiant/projets/audit/plan.txt') || ''), why: '> envoie la sortie d’echo dans le fichier (en l’écrasant s’il existait).' },
+    { t: 'Ajouter une ligne', goal: '<p>Ajoute une seconde ligne sans écraser : <code>echo "1. Mises à jour" &gt;&gt; projets/audit/plan.txt</code>, puis affiche le fichier.</p>', hint: ['echo "1. Mises à jour" >> projets/audit/plan.txt', 'cat projets/audit/plan.txt'], check: (w) => (lxRead(w, '/home/etudiant/projets/audit/plan.txt') || '').trim().split('\n').filter((x) => x.trim()).length >= 2, why: '>> ajoute à la fin au lieu d’écraser.' },
     { t: 'Copier et renommer', goal: '<p>Fais une copie de sauvegarde : <code>cp projets/audit/plan.txt projets/audit/plan.bak</code>.</p>', hint: 'cp projets/audit/plan.txt projets/audit/plan.bak', check: (w) => !!lxFile(w, '/home/etudiant/projets/audit/plan.bak'), why: 'cp duplique ; mv aurait déplacé ou renommé.' },
-    { t: 'Supprimer', goal: '<p>Supprime la copie : <code>rm projets/audit/plan.bak</code>. Attention, pas de corbeille.</p>', hint: 'rm projets/audit/plan.bak', check: (w) => !lxFile(w, '/home/etudiant/projets/audit/plan.bak') && !!lxFile(w, '/home/etudiant/projets/audit/plan.txt'), why: 'Le fichier est supprimé définitivement.' },
-    { t: 'Voir l’ensemble', goal: '<p>Affiche l’arborescence de ton dossier : <code>tree -L 2</code>.</p>', hint: 'tree -L 2', check: (w, l) => lxLast(l, /^tree/), why: 'Tu vois d’un coup d’œil ce que tu as créé.' },
+    { t: 'Supprimer', goal: '<p>Supprime la copie : <code>rm projets/audit/plan.bak</code>. Attention, pas de corbeille.</p>', hint: 'rm projets/audit/plan.bak', check: (w) => !lxFile(w, '/home/etudiant/projets/audit/plan.bak') && !!lxFile(w, '/home/etudiant/projets/audit/plan.txt'), diag: (w) => (!lxFile(w, '/home/etudiant/projets/audit/plan.txt') ? 'plan.txt a disparu : recrée-le, seule la copie plan.bak devait être supprimée.' : null), why: 'Le fichier est supprimé définitivement.' },
+    { t: 'Voir l’ensemble', goal: '<p>Affiche l’arborescence de ton dossier : <code>tree -L 2</code>.</p>', hint: 'tree -L 2', check: (w, l) => l.ok !== false && (lxLast(l, /^tree\b/) || lxLast(l, /^ls\s+(-\S*R|.*\s-\S*R)/) || lxLast(l, /^find\b/)), why: 'Tu vois d’un coup d’œil ce que tu as créé.' },
   ],
   outro: 'Navigation, création, lecture, redirections, copie et suppression : la base de tout travail en ligne de commande.',
 });
@@ -10962,13 +11458,13 @@ scen({
   intro: 'Protège un fichier sensible, rends un script exécutable, et confie un dossier à un service.',
   setup: () => lxWorld({ setup: (w) => { const h = w.fs.c.home.c.etudiant; h.c['secrets.txt'] = fF(0o644, 1000, 1000, 'clé API de test\n'); h.c.scripts.c['sauvegarde.sh'] = fF(0o644, 1000, 1000, '#!/bin/bash\necho "Sauvegarde lancée"\n'); w.fs.c.var.c.www.c.site = fD(0o755, 1000, 1000, { 'index.html': fF(0o644, 1000, 1000, '<h1>Site</h1>') }); } }),
   steps: [
-    { t: 'Lire les droits', goal: '<p>Affiche les droits de <code>secrets.txt</code> : <code>ls -l secrets.txt</code>.</p>', hint: 'ls -l secrets.txt', check: (w, l) => lxLsShows(w, l, /\/secrets\.txt$/), why: '-rw-r--r-- : tout le monde peut le lire. Pas acceptable pour un secret.' },
-    { t: 'Restreindre', goal: '<p>Réserve-le à toi seul : <code>chmod 600 secrets.txt</code>.</p>', hint: 'chmod 600 secrets.txt', check: (w) => (lxFile(w, '/home/etudiant/secrets.txt').mode & 0o777) === 0o600, why: '600 = rw- --- --- : lecture et écriture pour le propriétaire, rien pour les autres.' },
-    { t: 'Script non exécutable', goal: '<p>Essaie de lancer le script : <code>./scripts/sauvegarde.sh</code>.</p>', hint: './scripts/sauvegarde.sh', check: (w, l) => lxLast(l, /sauvegarde\.sh/) && l.ok === false, why: 'Permission non accordée : le fichier n’a pas le droit x.' },
-    { t: 'Rendre exécutable', goal: '<p><code>chmod u+x scripts/sauvegarde.sh</code> puis relance-le.</p>', hint: ['chmod u+x scripts/sauvegarde.sh', './scripts/sauvegarde.sh'], check: (w, l) => (lxFile(w, '/home/etudiant/scripts/sauvegarde.sh').mode & 0o100) && lxLast(l, /sauvegarde\.sh/) && l.ok !== false, why: 'u+x ajoute l’exécution au propriétaire seulement (notation symbolique).' },
-    { t: 'Changer le propriétaire', goal: '<p>Le serveur web (compte <code>www-data</code>) doit posséder son dossier : <code>sudo chown -R www-data:www-data /var/www/site</code> (mot de passe : trame).</p>', hint: 'sudo chown -R www-data:www-data /var/www/site', check: (w) => { const n = lxFile(w, '/var/www/site'); return n.uid === 33 || n.gid === 33; }, why: 'chown exige les droits root ; -R s’applique à tout le contenu.' },
-    { t: 'Vérifier', goal: '<p><code>ls -l /var/www</code></p>', hint: 'ls -l /var/www', check: (w, l) => lxLsShows(w, l, /^\/var\/www$/), why: 'Le dossier appartient désormais à www-data.' },
-    { t: 'Audit des droits spéciaux', goal: '<p>Liste les programmes SUID (exécutés avec les droits de leur propriétaire) : <code>find /usr -perm -4000 -type f</code>.</p>', hint: 'find /usr -perm -4000 -type f', check: (w, l) => lxLast(l, /^find\s.*-perm\s+-?4000/), why: 'passwd et sudo en ont légitimement besoin. Lors d’un audit, chaque entrée doit être justifiée.' },
+    { t: 'Lire les droits', goal: '<p>Affiche les droits de <code>secrets.txt</code> : <code>ls -l secrets.txt</code>.</p>', hint: 'ls -l secrets.txt', check: (w, l) => lxLsShows(w, l, /^\/home\/etudiant(\/secrets\.txt)?$/), why: '-rw-r--r-- : tout le monde peut le lire. Pas acceptable pour un secret.' },
+    { t: 'Restreindre', goal: '<p>Réserve-le à toi seul : <code>chmod 600 secrets.txt</code>.</p>', hint: 'chmod 600 secrets.txt', check: (w) => { const n = lxFile(w, '/home/etudiant/secrets.txt'); return !!n && (n.mode & 0o077) === 0 && !!(n.mode & 0o400); }, diag: (w) => { const n = lxFile(w, '/home/etudiant/secrets.txt'); if (!n) return 'secrets.txt n’existe plus.'; if (!(n.mode & 0o400)) return 'Tu ne peux plus le lire toi-même : garde au moins r pour le propriétaire (600 ou 400).'; return (n.mode & 0o077) ? `Les droits sont ${lxModeStr(n)} : le groupe ou les autres ont encore un accès.` : null; }, why: '600 = rw- --- --- : lecture et écriture pour le propriétaire, rien pour les autres. (400, lecture seule, convient aussi.)' },
+    { t: 'Script non exécutable', goal: '<p>Essaie de lancer le script : <code>./scripts/sauvegarde.sh</code>.</p>', hint: './scripts/sauvegarde.sh', check: (w, l) => lxLast(l, /sauvegarde\.sh/) && l.ok === false, skipIf: (w) => !!((lxFile(w, '/home/etudiant/scripts/sauvegarde.sh') || {}).mode & 0o100), why: 'Permission non accordée : le fichier n’a pas le droit x.' },
+    { t: 'Rendre exécutable', goal: '<p><code>chmod u+x scripts/sauvegarde.sh</code> puis relance-le.</p>', hint: ['chmod u+x scripts/sauvegarde.sh', './scripts/sauvegarde.sh'], check: (w, l) => !!((lxFile(w, '/home/etudiant/scripts/sauvegarde.sh') || {}).mode & 0o100) && lxLast(l, /sauvegarde\.sh/) && l.ok !== false, diag: (w, l) => (((lxFile(w, '/home/etudiant/scripts/sauvegarde.sh') || {}).mode & 0o100) && !lxLast(l, /sauvegarde\.sh/) ? 'Le droit x est bien là : relance maintenant le script pour vérifier.' : null), why: 'u+x ajoute l’exécution au propriétaire seulement (notation symbolique).' },
+    { t: 'Changer le propriétaire', goal: '<p>Le serveur web (compte <code>www-data</code>) doit posséder son dossier : <code>sudo chown -R www-data:www-data /var/www/site</code> (mot de passe : trame).</p>', hint: 'sudo chown -R www-data:www-data /var/www/site', check: (w) => { const n = lxFile(w, '/var/www/site'); return !!n && (n.uid === 33 || n.gid === 33); }, why: 'chown exige les droits root ; -R s’applique à tout le contenu.' },
+    { t: 'Vérifier', goal: '<p><code>ls -l /var/www</code></p>', hint: 'ls -l /var/www', check: (w, l) => lxLsShows(w, l, /^\/var\/www(\/site(\/.*)?)?$/), why: 'Le dossier appartient désormais à www-data.' },
+    { t: 'Audit des droits spéciaux', goal: '<p>Liste les programmes SUID (exécutés avec les droits de leur propriétaire) : <code>find /usr -perm -4000 -type f</code>.</p>', hint: 'find /usr -perm -4000 -type f', check: (w, l) => lxLast(l, /^find\s.*-perm\s+[-/]?(4000|u=s|u\+s|6000)/), why: 'passwd et sudo en ont légitimement besoin. Lors d’un audit, chaque entrée doit être justifiée.' },
   ],
   outro: 'Moindre privilège appliqué aux fichiers : secrets en 600, exécution seulement où il faut, dossiers confiés au bon compte.',
 });
@@ -10979,13 +11475,13 @@ scen({
   intro: 'Une nouvelle administratrice, Awa, arrive. Crée son compte proprement et donne-lui les droits nécessaires.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Qui suis-je ?', goal: '<p><code>id</code></p>', hint: 'id', check: (w, l) => lxLast(l, /^id\s*$/), why: 'Ton UID, ton groupe principal et tes groupes : « sudo » te permet de prendre les droits root.' },
-    { t: 'Fichier des comptes', goal: '<p>Lis la fin de <code>/etc/passwd</code> : <code>tail -n 3 /etc/passwd</code>.</p>', hint: 'tail -n 3 /etc/passwd', check: (w, l) => lxLast(l, /tail.*\/etc\/passwd/), why: 'Nom, UID, GID, dossier, shell. Le « x » indique que l’empreinte est dans /etc/shadow.' },
-    { t: 'Fichier protégé', goal: '<p>Essaie <code>cat /etc/shadow</code>.</p>', hint: 'cat /etc/shadow', check: (w, l) => lxLast(l, /^cat\s+\/etc\/shadow/) && l.ok === false, why: 'Refusé : seuls root et le groupe shadow lisent les empreintes de mots de passe.' },
-    { t: 'Créer le compte', goal: '<p><code>sudo useradd -m -s /bin/bash awa</code> (mot de passe sudo : trame).</p>', hint: 'sudo useradd -m -s /bin/bash awa', check: (w) => !!(w.users.awa && lxFile(w, '/home/awa') && w.users.awa.shell === '/bin/bash'), why: 'Compte créé avec son dossier /home/awa et bash comme shell.' },
+    { t: 'Qui suis-je ?', goal: '<p><code>id</code></p>', hint: 'id', check: (w, l) => lxLast(l, /^(id(\s+etudiant)?|groups(\s+etudiant)?)\s*$/), why: 'Ton UID, ton groupe principal et tes groupes : « sudo » te permet de prendre les droits root.' },
+    { t: 'Fichier des comptes', goal: '<p>Lis la fin de <code>/etc/passwd</code> : <code>tail -n 3 /etc/passwd</code>.</p>', hint: 'tail -n 3 /etc/passwd', check: (w, l) => l.ok !== false && lxTouches(w, l, /^\/etc\/passwd$/), why: 'Nom, UID, GID, dossier, shell. Le « x » indique que l’empreinte est dans /etc/shadow.' },
+    { t: 'Fichier protégé', goal: '<p>Essaie <code>cat /etc/shadow</code>.</p>', hint: 'cat /etc/shadow', check: (w, l) => l.ok === false && lxTouches(w, l, /^\/etc\/shadow$/), diag: (w, l) => (l && l.ok !== false && lxTouches(w, l, /^\/etc\/shadow$/) ? 'Avec sudo (ou en root), la lecture réussit : l’idée est justement de constater le refus pour un compte normal. Réessaie sans sudo.' : null), why: 'Refusé : seuls root et le groupe shadow lisent les empreintes de mots de passe.' },
+    { t: 'Créer le compte', goal: '<p><code>sudo useradd -m -s /bin/bash awa</code> (mot de passe sudo : trame). <code>sudo adduser awa</code> convient aussi.</p>', hint: 'sudo useradd -m -s /bin/bash awa', check: (w) => !!(w.users.awa && lxFile(w, '/home/awa') && w.users.awa.shell === '/bin/bash'), diag: (w) => { const u = w.users.awa; if (!u) return null; if (!lxFile(w, '/home/awa')) return 'Le compte existe mais sans dossier /home/awa : il manquait -m. Supprime-le (sudo userdel awa) et recrée-le, ou crée le dossier.'; if (u.shell !== '/bin/bash') return `Son shell est ${u.shell} : change-le avec sudo usermod -s /bin/bash awa.`; return null; }, why: 'Compte créé avec son dossier /home/awa et bash comme shell.' },
     { t: 'Mot de passe', goal: '<p><code>sudo passwd awa</code>, puis saisis deux fois le même mot de passe.</p>', hint: 'sudo passwd awa', check: (w) => !!(w.users.awa && w.users.awa.pw), why: 'Il est stocké haché et salé dans /etc/shadow.' },
     { t: 'Droits d’administration', goal: '<p>Ajoute-la au groupe sudo sans retirer ses autres groupes : <code>sudo usermod -aG sudo awa</code>.</p>', hint: 'sudo usermod -aG sudo awa', check: (w) => !!(w.users.awa && w.users.awa.groups.includes('sudo') && w.users.awa.groups.includes('awa')), why: 'Le -a (append) est essentiel : sans lui, ses groupes seraient remplacés.' },
-    { t: 'Vérifier', goal: '<p><code>id awa</code></p>', hint: 'id awa', check: (w, l) => lxLast(l, /^id\s+awa/), why: 'Awa est membre de sudo : elle pourra administrer, et chacune de ses commandes sudo sera journalisée.' },
+    { t: 'Vérifier', goal: '<p><code>id awa</code></p>', hint: 'id awa', check: (w, l) => l.ok !== false && (lxLast(l, /^(id|groups)\s+awa\b/) || lxLast(l, /^getent\s+group\s+sudo/) || lxTouches(w, l, /^\/etc\/group$/)), why: 'Awa est membre de sudo : elle pourra administrer, et chacune de ses commandes sudo sera journalisée.' },
   ],
   outro: 'Un compte nominatif par personne, droits via les groupes, et sudo plutôt que le compte root partagé.',
 });
@@ -10996,13 +11492,13 @@ scen({
   intro: 'Mets le serveur à jour, installe fail2ban, et coupe un service inutile sur un serveur.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Services actifs', goal: '<p><code>systemctl list-units --type=service --state=running</code></p>', hint: 'systemctl list-units --type=service --state=running', check: (w, l) => lxLast(l, /list-units/), why: 'cups (impression) tourne : inutile sur un serveur, c’est de la surface d’attaque en trop.' },
+    { t: 'Services actifs', goal: '<p><code>systemctl list-units --type=service --state=running</code></p>', hint: 'systemctl list-units --type=service --state=running', check: (w, l) => l.ok !== false && (lxLast(l, /^systemctl(\s+list-units\b|\s+--type|\s+--state|\s*$)/) || lxLast(l, /^service\s+--status-all/)), why: 'cups (impression) tourne : inutile sur un serveur, c’est de la surface d’attaque en trop.' },
     { t: 'Rafraîchir le catalogue', goal: '<p><code>sudo apt update</code> (mot de passe : trame).</p>', hint: 'sudo apt update', check: (w) => w.aptFresh, why: 'La liste des paquets est à jour ; rien n’est encore installé.' },
     { t: 'Installer les mises à jour', goal: '<p><code>sudo apt upgrade</code></p>', hint: 'sudo apt upgrade', check: (w) => !!w.upgraded, why: 'Les correctifs (dont openssl) sont appliqués : les failles connues sont fermées.' },
     { t: 'Installer fail2ban', goal: '<p><code>sudo apt install fail2ban</code></p>', hint: 'sudo apt install fail2ban', check: (w) => w.pkgs.includes('fail2ban'), why: 'fail2ban bannit temporairement les adresses qui accumulent les échecs de connexion.' },
-    { t: 'Vérifier le service', goal: '<p><code>systemctl status fail2ban</code></p>', hint: 'systemctl status fail2ban', check: (w, l) => lxLast(l, /status\s+fail2ban/), why: 'active (running) et enabled : il démarrera aussi au prochain boot.' },
-    { t: 'Couper le superflu', goal: '<p>Arrête et désactive cups : <code>sudo systemctl disable --now cups</code>.</p>', hint: 'sudo systemctl disable --now cups', check: (w) => !w.svc.cups.active && !w.svc.cups.enabled, why: '--now arrête tout de suite en plus de désactiver au démarrage.' },
-    { t: 'Ports en écoute', goal: '<p><code>sudo ss -tulpn</code></p>', hint: 'sudo ss -tulpn', check: (w, l) => lxLast(l, /ss\s+-tulpn/), why: 'Il ne reste que SSH en écoute : la surface d’attaque est minimale.' },
+    { t: 'Vérifier le service', goal: '<p><code>systemctl status fail2ban</code></p>', hint: 'systemctl status fail2ban', check: (w, l) => l.ok !== false && (lxLast(l, /^systemctl\s+(status|is-active|is-enabled)\s+fail2ban/) || lxLast(l, /^service\s+fail2ban\s+status/) || lxLast(l, /^fail2ban-client\s+status/)), why: 'active (running) et enabled : il démarrera aussi au prochain boot.' },
+    { t: 'Couper le superflu', goal: '<p>Arrête et désactive cups : <code>sudo systemctl disable --now cups</code>.</p>', hint: 'sudo systemctl disable --now cups', check: (w) => !w.svc.cups || (!w.svc.cups.active && !w.svc.cups.enabled), diag: (w) => (w.svc.cups && (w.svc.cups.active !== w.svc.cups.enabled) ? (w.svc.cups.active ? 'cups est désactivé au démarrage mais tourne encore : arrête-le (stop, ou disable --now).' : 'cups est arrêté mais redémarrera au prochain boot : désactive-le (disable).') : null), why: '--now arrête tout de suite en plus de désactiver au démarrage.' },
+    { t: 'Ports en écoute', goal: '<p><code>sudo ss -tulpn</code></p>', hint: 'sudo ss -tulpn', check: (w, l) => l.ok !== false && lxLast(l, /^(ss|netstat)\s+-\S*l/), why: 'Il ne reste que SSH en écoute : la surface d’attaque est minimale.' },
   ],
   outro: 'Mises à jour, protection contre la force brute, services réduits au strict nécessaire : le durcissement de base d’un serveur.',
 });
@@ -11013,13 +11509,13 @@ scen({
   intro: 'Une seconde carte réseau (eth1) vient d’être branchée sur le réseau d’administration 10.0.0.0/24. Configure-la et rends la configuration permanente.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'État des interfaces', goal: '<p><code>ip -br addr</code></p>', hint: 'ip -br addr', check: (w, l) => lxLast(l, /^ip\s+-br\s+a/), why: 'eth0 a une adresse ; eth1 est DOWN, sans adresse.' },
-    { t: 'Table de routage', goal: '<p><code>ip route</code></p>', hint: 'ip route', check: (w, l) => lxLast(l, /^ip\s+r/), why: '« default via 192.168.1.1 » : c’est la passerelle.' },
-    { t: 'Adresser eth1', goal: '<p><code>sudo ip addr add 10.0.0.5/24 dev eth1</code> (mot de passe : trame).</p>', hint: 'sudo ip addr add 10.0.0.5/24 dev eth1', check: (w) => w.net.ifs.eth1.addrs.includes('10.0.0.5/24'), why: 'Adresse ajoutée… mais l’interface est encore éteinte.' },
+    { t: 'État des interfaces', goal: '<p><code>ip -br addr</code></p>', hint: 'ip -br addr', check: (w, l) => l.ok !== false && lxLast(l, /^ip\s+(-\S+\s+)*(a|addr|address|l|link)(\s+show\b.*)?\s*$/), why: 'eth0 a une adresse ; eth1 est DOWN, sans adresse.' },
+    { t: 'Table de routage', goal: '<p><code>ip route</code></p>', hint: 'ip route', check: (w, l) => l.ok !== false && lxLast(l, /^ip\s+(-\S+\s+)*(r|ro|route)(\s+(show|list)\b.*)?\s*$/), why: '« default via 192.168.1.1 » : c’est la passerelle.' },
+    { t: 'Adresser eth1', goal: '<p><code>sudo ip addr add 10.0.0.5/24 dev eth1</code> (mot de passe : trame).</p>', hint: 'sudo ip addr add 10.0.0.5/24 dev eth1', check: (w) => w.net.ifs.eth1.addrs.includes('10.0.0.5/24'), diag: (w) => { const a = w.net.ifs.eth1.addrs.find((c) => c.startsWith('10.0.0.5/')); return a ? `eth1 a reçu ${a} : le masque attendu est /24.` : null; }, why: 'Adresse ajoutée… mais l’interface est encore éteinte.' },
     { t: 'Activer eth1', goal: '<p><code>sudo ip link set eth1 up</code></p>', hint: 'sudo ip link set eth1 up', check: (w) => w.net.ifs.eth1.up, why: 'eth1 est active.' },
-    { t: 'Tester', goal: '<p><code>ping -c 3 10.0.0.1</code></p>', hint: 'ping -c 3 10.0.0.1', check: (w, l) => !!(l && l.ping && l.ping.dst === '10.0.0.1' && l.ping.ok), why: 'Le réseau d’administration répond.' },
-    { t: 'Rendre permanent', goal: '<p>Les commandes ip disparaissent au redémarrage. Édite Netplan : <code>sudo nano /etc/netplan/01-netcfg.yaml</code> et ajoute sous <code>ethernets:</code> :</p><pre class="term">    eth1:\n      addresses: [10.0.0.5/24]</pre><p>Enregistre (Ctrl+O) et quitte (Ctrl+X).</p>', hint: 'sudo nano /etc/netplan/01-netcfg.yaml', check: (w) => /eth1:[\s\S]*10\.0\.0\.5\/24/.test(lxRead(w, '/etc/netplan/01-netcfg.yaml') || ''), why: 'La configuration est décrite dans un fichier : elle survivra au redémarrage.' },
-    { t: 'Ports en écoute', goal: '<p>Vérifie ce qui écoute sur la machine : <code>sudo ss -tulpn</code>.</p>', hint: 'sudo ss -tulpn', check: (w, l) => lxLast(l, /ss\s+-tulpn/), why: 'Inventorier les ports ouverts est le premier réflexe de sécurité après toute configuration réseau.' },
+    { t: 'Tester', goal: '<p><code>ping -c 3 10.0.0.1</code></p>', hint: 'ping -c 3 10.0.0.1', check: (w, l) => !!(l && l.ping && l.ping.ok && /^10\.0\.0\.\d+$/.test(l.ping.dst) && l.ping.dst !== '10.0.0.5'), why: 'Le réseau d’administration répond.' },
+    { t: 'Rendre permanent', goal: '<p>Les commandes ip disparaissent au redémarrage. Édite Netplan : <code>sudo nano /etc/netplan/01-netcfg.yaml</code> et ajoute sous <code>ethernets:</code> :</p><pre class="term">    eth1:\n      addresses: [10.0.0.5/24]</pre><p>Enregistre (Ctrl+O) et quitte (Ctrl+X). Un autre fichier .yaml de /etc/netplan convient aussi.</p>', hint: 'sudo nano /etc/netplan/01-netcfg.yaml', check: (w) => lxNetplanHas(w, 'eth1', '10.0.0.5/24'), diag: (w) => (/^\/etc\/netplan\//.test(w.lastEdit || '') ? 'Netplan ne trouve pas encore « 10.0.0.5/24 » sous eth1 : vérifie l’indentation (des espaces, pas de tabulation) et que eth1 est bien sous ethernets:.' : null), why: 'La configuration est décrite dans un fichier : elle survivra au redémarrage (sudo netplan apply l’applique sans redémarrer).' },
+    { t: 'Ports en écoute', goal: '<p>Vérifie ce qui écoute sur la machine : <code>sudo ss -tulpn</code>.</p>', hint: 'sudo ss -tulpn', check: (w, l) => l.ok !== false && lxLast(l, /^(ss|netstat)\s+-\S*l/), why: 'Inventorier les ports ouverts est le premier réflexe de sécurité après toute configuration réseau.' },
   ],
   outro: 'Lire, configurer, tester, puis rendre permanent : la méthode vaut pour tout réglage réseau.',
 });
@@ -11030,15 +11526,15 @@ scen({
   intro: 'Le serveur accepte les connexions root et les mots de passe. Passe aux clés, durcis la configuration et filtre le trafic entrant.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Générer une clé', goal: '<p><code>ssh-keygen -t ed25519</code>, Entrée pour l’emplacement, puis choisis une phrase de passe.</p>', hint: 'ssh-keygen -t ed25519', check: (w) => !!lxFile(w, '/home/etudiant/.ssh/id_ed25519.pub'), why: 'Clé privée en 600 dans ~/.ssh, clé publique .pub à copier sur les serveurs.' },
-    { t: 'Vérifier les droits', goal: '<p><code>ls -l ~/.ssh</code></p>', hint: 'ls -l ~/.ssh', check: (w, l) => lxLsShows(w, l, /\/home\/etudiant\/\.ssh$/), why: 'id_ed25519 en -rw------- : SSH refuse une clé privée lisible par d’autres.' },
-    { t: 'Durcir sshd_config', goal: '<p><code>sudo nano /etc/ssh/sshd_config</code> et règle :</p><pre class="term">PermitRootLogin no\nPasswordAuthentication no\nMaxAuthTries 3</pre><p>Modifie les lignes existantes plutôt que d’en ajouter : sshd ne retient que la <b>première</b> occurrence d’un mot-clé. Enregistre (Ctrl+O) puis quitte (Ctrl+X).</p>', hint: 'sudo nano /etc/ssh/sshd_config', check: (w) => { const c = lxSshdParse(lxRead(w, '/etc/ssh/sshd_config') || ''); return c.PermitRootLogin === 'no' && c.PasswordAuthentication === 'no'; }, why: 'Plus de connexion root directe, plus de mot de passe : seules les clés sont acceptées.' },
-    { t: 'Vérifier la syntaxe', goal: '<p><code>sudo sshd -t</code> — aucun message signifie que tout est correct.</p>', hint: 'sudo sshd -t', check: (w, l) => !!(l && l.sshdOk), why: 'Toujours vérifier avant de redémarrer : une erreur empêcherait SSH de repartir.' },
-    { t: 'Appliquer', goal: '<p><code>sudo systemctl restart ssh</code></p>', hint: 'sudo systemctl restart ssh', check: (w) => w.sshApplied && w.sshApplied.PermitRootLogin === 'no' && w.sshApplied.PasswordAuthentication === 'no', why: 'Les nouveaux réglages sont actifs.' },
-    { t: 'Refus par défaut', goal: '<p><code>sudo ufw default deny incoming</code> puis <code>sudo ufw default allow outgoing</code>.</p>', hint: ['sudo ufw default deny incoming', 'sudo ufw default allow outgoing'], check: (w) => w.ufw.defIn === 'deny' && w.ufw.defOut === 'allow' && !!(w.ufw.defSet && w.ufw.defSet.incoming && w.ufw.defSet.outgoing), why: 'Rien n’entrera sauf ce qui est explicitement autorisé. (Ubuntu applique déjà ces valeurs, mais les fixer soi-même garantit l’état attendu.)' },
-    { t: 'Autoriser SSH d’abord', goal: '<p><code>sudo ufw limit 22/tcp</code> — autorise SSH en freinant les tentatives répétées.</p>', hint: 'sudo ufw limit 22/tcp', check: (w) => w.ufw.rules.some((r) => (r.act === 'allow' || r.act === 'limit') && ufwSsh(r)), why: 'SSH est autorisé AVANT l’activation : tu ne te couperas pas.' },
+    { t: 'Générer une clé', goal: '<p><code>ssh-keygen -t ed25519</code>, Entrée pour l’emplacement, puis choisis une phrase de passe.</p>', hint: 'ssh-keygen -t ed25519', check: (w) => lxUserKeys(w, 'etudiant').length > 0, diag: (w) => (lxUserKeys(w, 'root').length ? 'La clé a été créée dans /root/.ssh, pour le compte root. Génère-la en tant qu’etudiant, sans sudo.' : null), why: 'Clé privée en 600 dans ~/.ssh, clé publique .pub à copier sur les serveurs.' },
+    { t: 'Vérifier les droits', goal: '<p><code>ls -l ~/.ssh</code></p>', hint: 'ls -l ~/.ssh', check: (w, l) => lxLsShows(w, l, /^\/home\/etudiant\/\.ssh(\/[^/]+)?$/), why: 'La clé privée est en -rw------- (600) : SSH refuse une clé privée lisible par d’autres.' },
+    { t: 'Durcir sshd_config', goal: '<p><code>sudo nano /etc/ssh/sshd_config</code> et règle :</p><pre class="term">PermitRootLogin no\nPasswordAuthentication no\nMaxAuthTries 3</pre><p>sshd ne retient que la <b>première</b> occurrence d’un mot-clé : modifie les lignes existantes plutôt que d’en ajouter. Un fichier dans <code>/etc/ssh/sshd_config.d/</code>, <code>sed -i</code> ou <code>tee</code> conviennent aussi.</p>', hint: 'sudo nano /etc/ssh/sshd_config', check: (w) => { const c = lxSshdEffective(w); return c.PermitRootLogin === 'no' && c.PasswordAuthentication === 'no'; }, diag: (w) => (/^\/etc\/ssh\//.test(w.lastEdit || '') ? lxSshDiag(w, { PermitRootLogin: 'no', PasswordAuthentication: 'no' }) : null), why: 'Plus de connexion root directe, plus de mot de passe : seules les clés sont acceptées.' },
+    { t: 'Vérifier la syntaxe', goal: '<p><code>sudo sshd -t</code> — aucun message signifie que tout est correct.</p>', hint: 'sudo sshd -t', check: (w, l) => !!(l && l.sshdOk) || lxSshdLive(w), why: 'Toujours vérifier avant de redémarrer : une erreur empêcherait SSH de repartir.' },
+    { t: 'Appliquer', goal: '<p><code>sudo systemctl restart ssh</code></p>', hint: 'sudo systemctl restart ssh', check: (w) => !!(w.svc.ssh && w.svc.ssh.active && w.sshApplied && w.sshApplied.PermitRootLogin === 'no' && w.sshApplied.PasswordAuthentication === 'no'), diag: (w, l) => { if (!lxLast(l, /(systemctl|service)\b.*\bssh/)) return null; if (w.svc.ssh && !w.svc.ssh.active) return 'Le service ssh est arrêté : corrige l’erreur de configuration, puis démarre-le.'; return lxSshdLive(w) ? null : 'La configuration a changé depuis le dernier redémarrage : relance le service ssh.'; }, why: 'Les nouveaux réglages sont actifs.' },
+    { t: 'Refus par défaut', goal: '<p><code>sudo ufw default deny incoming</code> puis <code>sudo ufw default allow outgoing</code>.</p>', hint: ['sudo ufw default deny incoming', 'sudo ufw default allow outgoing'], check: (w) => ['deny', 'reject'].includes(w.ufw.defIn) && w.ufw.defOut === 'allow' && !!((w.ufw.defSet && w.ufw.defSet.incoming) || w.ufw.on), diag: (w) => (w.ufw.defIn === 'allow' ? 'La politique entrante est « allow » : tout entrerait. Passe-la à deny.' : w.ufw.defOut !== 'allow' ? `La politique sortante est « ${w.ufw.defOut} » : le serveur ne pourrait plus faire ses mises à jour. Remets-la à allow.` : null), why: 'Rien n’entrera sauf ce qui est explicitement autorisé. (Ubuntu applique déjà ces valeurs, mais les fixer soi-même garantit l’état attendu.)' },
+    { t: 'Autoriser SSH d’abord', goal: '<p><code>sudo ufw limit 22/tcp</code> — autorise SSH en freinant les tentatives répétées. (<code>ufw allow OpenSSH</code> ou <code>ufw allow ssh</code> conviennent aussi.)</p>', hint: 'sudo ufw limit 22/tcp', check: (w) => w.ufw.rules.some((r) => (r.act === 'allow' || r.act === 'limit') && ufwSsh(r, w)), diag: (w) => { const p = String((w.sshApplied && w.sshApplied.Port) || '22'); if (p !== '22' && w.ufw.rules.some((r) => (r.act === 'allow' || r.act === 'limit') && ufwSsh(r, null))) return `SSH écoute sur le port ${p} (Port dans sshd_config) : c’est ce port qu’il faut autoriser.`; return w.ufw.rules.some((r) => ufwSsh(r, w) && (r.act === 'deny' || r.act === 'reject')) ? 'Une règle REFUSE SSH : supprime-la (sudo ufw status numbered puis sudo ufw delete N).' : null; }, why: 'SSH est autorisé : le pare-feu ne te coupera pas l’accès.' },
     { t: 'Activer', goal: '<p><code>sudo ufw enable</code>, puis confirme avec <code>y</code>.</p>', hint: ['sudo ufw enable', 'y'], check: (w) => w.ufw.on, why: 'Le pare-feu est actif, et le restera au démarrage.' },
-    { t: 'Contrôler', goal: '<p><code>sudo ufw status verbose</code></p>', hint: 'sudo ufw status verbose', check: (w, l) => lxLast(l, /ufw\s+status/), why: 'Politique deny en entrée, SSH limité : configuration minimale et saine.' },
+    { t: 'Contrôler', goal: '<p><code>sudo ufw status verbose</code></p>', hint: 'sudo ufw status verbose', check: (w, l) => l.ok !== false && w.ufw.on && (lxLast(l, /^ufw\s+(status|show)\b/) || lxLast(l, /^(iptables|ip6tables)\s+-\S*L/)), why: 'Politique deny en entrée, SSH autorisé : configuration minimale et saine.' },
   ],
   outro: 'Clés au lieu de mots de passe, root interdit, pare-feu en refus par défaut : un serveur bien plus difficile à atteindre.',
 });
@@ -11049,13 +11545,13 @@ scen({
   intro: 'Tu reprends l’exploitation d’un serveur. Lis son journal d’authentification pour repérer une activité anormale et réagir.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Accès au journal', goal: '<p>Affiche les dernières lignes : <code>tail -n 5 /var/log/auth.log</code>. Ton compte fait partie du groupe adm, qui peut lire les journaux.</p>', hint: 'tail -n 5 /var/log/auth.log', check: (w, l) => lxLast(l, /tail.*auth\.log/), why: 'Connexions par clé de ton compte, et une commande sudo : tout est tracé.' },
-    { t: 'Compter les échecs', goal: '<p><code>grep "Failed password" /var/log/auth.log | wc -l</code></p>', hint: 'grep "Failed password" /var/log/auth.log | wc -l', check: (w, l) => lxLast(l, /grep.*Failed.*\|\s*wc\s+-l/), why: 'Quelques échecs : normal sur un serveur exposé. Il faut voir d’où ils viennent.' },
-    { t: 'Qui échoue ?', goal: '<p>Extrais l’IP de chaque échec et compte-les :</p><p><code>grep "Failed password" /var/log/auth.log | awk \'{print $(NF-3)}\' | sort | uniq -c</code></p>', hint: "grep \"Failed password\" /var/log/auth.log | awk '{print $(NF-3)}' | sort | uniq -c", check: (w, l) => lxLast(l, /awk.*sort.*uniq\s+-c/), why: 'Toutes les tentatives viennent de la même adresse externe : 203.0.113.45.' },
-    { t: 'Les connexions réussies', goal: '<p><code>grep "Accepted" /var/log/auth.log</code></p>', hint: 'grep "Accepted" /var/log/auth.log', check: (w, l) => lxLast(l, /grep.*Accepted/), why: 'Une connexion par mot de passe du compte « backup » depuis cette même IP, juste après les échecs : à traiter comme un incident.' },
-    { t: 'Verrouiller le compte', goal: '<p>Bloque le compte concerné le temps d’enquêter : <code>sudo usermod -L backup</code> (mot de passe : trame).</p>', hint: 'sudo usermod -L backup', check: (w) => !!(w.users.backup && w.users.backup.locked), why: 'Le mot de passe du compte ne permet plus de se connecter.' },
-    { t: 'Bloquer l’adresse', goal: '<p><code>sudo ufw deny from 203.0.113.45</code>, puis active le pare-feu s’il ne l’est pas (<code>sudo ufw enable</code>, <code>y</code>).</p>', hint: ['sudo ufw deny from 203.0.113.45', 'sudo ufw enable', 'y'], check: (w) => w.ufw.on && w.ufw.rules.some((r) => r.act === 'deny' && r.from === '203.0.113.45'), why: 'L’adresse est bloquée en entrée.' },
-    { t: 'Garder une trace', goal: '<p>Conserve les preuves pour l’enquête : <code>grep 203.0.113.45 /var/log/auth.log &gt; incident.txt</code>.</p>', hint: 'grep 203.0.113.45 /var/log/auth.log > incident.txt', check: (w) => /203\.0\.113\.45/.test(lxRead(w, '/home/etudiant/incident.txt') || ''), why: 'Les lignes pertinentes sont isolées pour l’analyse et le rapport. Prochaines étapes : changer le mot de passe du compte, passer aux clés, et vérifier ce qui a été fait pendant la session.' },
+    { t: 'Accès au journal', goal: '<p>Affiche les dernières lignes : <code>tail -n 5 /var/log/auth.log</code>. Ton compte fait partie du groupe adm, qui peut lire les journaux.</p>', hint: 'tail -n 5 /var/log/auth.log', check: (w, l) => l.ok !== false && (lxTouches(w, l, /^\/var\/log\/auth\.log$/) || lxLast(l, /^journalctl\b/)), why: 'Connexions par clé de ton compte, et une commande sudo : tout est tracé.' },
+    { t: 'Compter les échecs', goal: '<p><code>grep "Failed password" /var/log/auth.log | wc -l</code></p>', hint: 'grep "Failed password" /var/log/auth.log | wc -l', check: (w, l) => l.ok !== false && (lxLast(l, /grep.*Failed.*\|\s*wc\s+-l/i) || lxLast(l, /grep\s+(-\S*c\S*\s+.*Failed|.*Failed.*\s-\S*c\b)/i) || lxLast(l, /awk.*Failed.*(END|\|\s*wc)/i)), why: 'Quelques échecs : normal sur un serveur exposé. Il faut voir d’où ils viennent.' },
+    { t: 'Qui échoue ?', goal: '<p>Extrais l’IP de chaque échec et compte-les :</p><p><code>grep "Failed password" /var/log/auth.log | awk \'{print $(NF-3)}\' | sort | uniq -c</code></p>', hint: "grep \"Failed password\" /var/log/auth.log | awk '{print $(NF-3)}' | sort | uniq -c", check: (w, l) => l.ok !== false && lxLast(l, /Failed/i) && (lxLast(l, /uniq\s+-c/) || lxLast(l, /sort\s+(-\S+\s+)*-u|uniq\b/)) && (l.out || []).some((x) => x.includes('203.0.113.45')), diag: (w, l) => (l && lxLast(l, /Failed/i) && !(l.out || []).some((x) => x.includes('203.0.113.45')) ? 'Le résultat ne montre pas les adresses IP : ajuste le champ extrait (avec awk, $(NF-3) est l’IP ; avec cut, compte les espaces).' : null), why: 'Toutes les tentatives viennent de la même adresse externe : 203.0.113.45.' },
+    { t: 'Les connexions réussies', goal: '<p><code>grep "Accepted" /var/log/auth.log</code></p>', hint: 'grep "Accepted" /var/log/auth.log', check: (w, l) => l.ok !== false && (l.out || []).some((x) => /Accepted password for backup/.test(x)), why: 'Une connexion par mot de passe du compte « backup » depuis cette même IP, juste après les échecs : à traiter comme un incident.' },
+    { t: 'Verrouiller le compte', goal: '<p>Bloque le compte concerné le temps d’enquêter : <code>sudo usermod -L backup</code> (mot de passe : trame).</p>', hint: 'sudo usermod -L backup', check: (w) => !!(w.users.backup && (w.users.backup.locked || /nologin|false/.test(w.users.backup.shell || ''))), why: 'Le mot de passe du compte ne permet plus de se connecter.' },
+    { t: 'Bloquer l’adresse', goal: '<p><code>sudo ufw deny from 203.0.113.45</code>, puis active le pare-feu s’il ne l’est pas (<code>sudo ufw enable</code>, <code>y</code>).</p>', hint: ['sudo ufw deny from 203.0.113.45', 'sudo ufw enable', 'y'], check: (w) => w.ufw.on && w.ufw.rules.some((r) => (r.act === 'deny' || r.act === 'reject') && r.dir !== 'out' && (r.fromAddr === '203.0.113.45' || r.from === '203.0.113.45' || /^203\.0\.113\.(0\/24|45\/32)$/.test(r.fromAddr || ''))), diag: (w) => (w.ufw.rules.some((r) => (r.act === 'deny' || r.act === 'reject') && /203\.0\.113\.45/.test(r.from || '')) && !w.ufw.on ? 'La règle existe, mais le pare-feu est inactif : active-le (sudo ufw enable).' : null), why: 'L’adresse est bloquée en entrée.' },
+    { t: 'Garder une trace', goal: '<p>Conserve les preuves pour l’enquête : <code>grep 203.0.113.45 /var/log/auth.log &gt; incident.txt</code>.</p>', hint: 'grep 203.0.113.45 /var/log/auth.log > incident.txt', check: (w) => lxHomeFilesWith(w, /203\.0\.113\.45/).length > 0, why: 'Les lignes pertinentes sont isolées pour l’analyse et le rapport. Prochaines étapes : changer le mot de passe du compte, passer aux clés, et vérifier ce qui a été fait pendant la session.' },
   ],
   outro: 'Repérer, contenir, garder les preuves : c’est la démarche de réponse à incident appliquée en ligne de commande.',
 });
@@ -11066,12 +11562,12 @@ scen({
   intro: 'Écris un script qui archive tes documents avec la date dans le nom, puis planifie-le chaque nuit.',
   setup: () => lxWorld(),
   steps: [
-    { t: 'Écrire le script', goal: '<p><code>nano sauvegarde.sh</code> et écris :</p><pre class="term">#!/bin/bash\nDATE=$(date +%F)\nmkdir -p /home/etudiant/sauvegardes\ntar -czf /home/etudiant/sauvegardes/docs-$DATE.tar.gz /home/etudiant/documents\necho "Sauvegarde du $DATE terminée"</pre><p>Enregistre et quitte.</p>', hint: 'nano sauvegarde.sh', check: (w) => /tar\s+-czf/.test(lxRead(w, '/home/etudiant/sauvegarde.sh') || ''), why: 'Le script contient la logique ; $DATE donne un nom unique à chaque archive.' },
+    { t: 'Écrire le script', goal: '<p><code>nano sauvegarde.sh</code> et écris :</p><pre class="term">#!/bin/bash\nDATE=$(date +%F)\nmkdir -p /home/etudiant/sauvegardes\ntar -czf /home/etudiant/sauvegardes/docs-$DATE.tar.gz /home/etudiant/documents\necho "Sauvegarde du $DATE terminée"</pre><p>Enregistre et quitte.</p>', hint: 'nano sauvegarde.sh', check: (w) => /\btar\s+(-?[a-zA-Z]*c[a-zA-Z]*f|.*--create)/.test(lxRead(w, '/home/etudiant/sauvegarde.sh') || ''), diag: (w) => (w.lastEdit === '/home/etudiant/sauvegarde.sh' ? 'Le script ne contient pas encore de commande tar qui crée une archive (tar -czf ARCHIVE DOSSIER).' : null), why: 'Le script contient la logique ; $DATE donne un nom unique à chaque archive.' },
     { t: 'Le rendre exécutable', goal: '<p><code>chmod +x sauvegarde.sh</code></p>', hint: 'chmod +x sauvegarde.sh', check: (w) => !!((lxFile(w, '/home/etudiant/sauvegarde.sh') || {}).mode & 0o100), why: 'Sans le droit x, ./sauvegarde.sh serait refusé.' },
-    { t: 'Le lancer', goal: '<p><code>./sauvegarde.sh</code></p>', hint: './sauvegarde.sh', check: (w) => { const d = lxFile(w, '/home/etudiant/sauvegardes'); return !!(d && Object.keys(d.c).some((k) => /docs-.*\.tar\.gz/.test(k))); }, why: 'L’archive datée est créée.' },
-    { t: 'Vérifier', goal: '<p><code>ls -l sauvegardes</code></p>', hint: 'ls -l sauvegardes', check: (w, l) => lxLsShows(w, l, /\/sauvegardes$/, false), why: 'Une archive par exécution, horodatée.' },
-    { t: 'Planifier', goal: '<p><code>crontab -e</code> et ajoute la ligne :</p><pre class="term">0 2 * * * /home/etudiant/sauvegarde.sh</pre><p>Enregistre et quitte.</p>', hint: 'crontab -e', check: (w) => /^\s*0\s+2\s+\*\s+\*\s+\*\s+\/home\/etudiant\/sauvegarde\.sh/m.test(w.cron.etudiant || ''), why: 'Minute 0, heure 2, tous les jours : chaque nuit à 2 h.' },
-    { t: 'Contrôler', goal: '<p><code>crontab -l</code></p>', hint: 'crontab -l', check: (w, l) => lxLast(l, /^crontab\s+-l/), why: 'La tâche est enregistrée. Pense à tester régulièrement la restauration d’une archive.' },
+    { t: 'Le lancer', goal: '<p><code>./sauvegarde.sh</code></p>', hint: './sauvegarde.sh', check: (w) => lxArchives(w).length > 0, why: 'L’archive datée est créée.' },
+    { t: 'Vérifier', goal: '<p><code>ls -l sauvegardes</code></p>', hint: 'ls -l sauvegardes', check: (w, l) => { const dirs = lxArchives(w).map((p) => p.slice(0, p.lastIndexOf('/'))); return lxLsShows(w, l, { test: (p) => dirs.includes(p) || lxArchives(w).includes(p) }, false) || (l.ok !== false && lxLast(l, /^(tar\s+-?\S*t|find\b|tree\b)/)); }, why: 'Une archive par exécution, horodatée.' },
+    { t: 'Planifier', goal: '<p><code>crontab -e</code> et ajoute la ligne :</p><pre class="term">0 2 * * * /home/etudiant/sauvegarde.sh</pre><p>Enregistre et quitte.</p>', hint: 'crontab -e', check: (w) => lxCronHas(w, /^\s*0?0\s+0?2\s+\*\s+\*\s+\*\s+(?:\S*bash\s+|\S*sh\s+)?(\/home\/etudiant|~|\$HOME)\/sauvegarde\.sh\b/m), diag: (w) => (lxCronHas(w, /sauvegarde\.sh/) ? 'La tâche existe mais pas à 2 h chaque nuit, ou avec un chemin relatif : cron a besoin du chemin complet. Format : 0 2 * * * /home/etudiant/sauvegarde.sh' : null), why: 'Minute 0, heure 2, tous les jours : chaque nuit à 2 h.' },
+    { t: 'Contrôler', goal: '<p><code>crontab -l</code></p>', hint: 'crontab -l', check: (w, l) => l.ok !== false && (lxLast(l, /^crontab\s+(-u\s+\S+\s+)?-l/) || lxTouches(w, l, /^\/etc\/(crontab|cron\.d\/.+)$/)), why: 'La tâche est enregistrée. Pense à tester régulièrement la restauration d’une archive.' },
   ],
   outro: 'Une sauvegarde automatique, datée et planifiée : pense à copier les archives hors de la machine (règle 3-2-1).',
 });
@@ -12675,8 +13171,8 @@ scen({
     { t: 'Préparer le mot de passe', goal: '<p>Un mot de passe ne s’écrit jamais en clair dans une commande. Saisis-le dans une variable sécurisée :</p><p><code>$mdp = Read-Host -AsSecureString "Mot de passe initial"</code></p><p>puis tape un mot de passe d’au moins 8 caractères (il ne s’affiche pas).</p>', hint: '$mdp = Read-Host -AsSecureString "Mot de passe initial"', check: (w) => !!(w.vars.mdp && w.vars.mdp._t === 'secure'), why: '$mdp contient une SecureString : chiffrée en mémoire, absente de l’historique.' },
     { t: 'Créer le compte', goal: '<p>Ibrahim Coulibaly rejoint la comptabilité :</p><p><code>New-ADUser -Name "Ibrahim Coulibaly" -SamAccountName ibrahim.coulibaly -UserPrincipalName ibrahim.coulibaly@trame.local -Path "OU=Comptabilite,OU=Utilisateurs,DC=trame,DC=local" -AccountPassword $mdp -ChangePasswordAtLogon $true -Enabled $true</code></p>', hint: 'New-ADUser -Name "Ibrahim Coulibaly" -SamAccountName ibrahim.coulibaly -UserPrincipalName ibrahim.coulibaly@trame.local -Path "OU=Comptabilite,OU=Utilisateurs,DC=trame,DC=local" -AccountPassword $mdp -ChangePasswordAtLogon $true -Enabled $true', check: (w) => { const u = w.users['ibrahim.coulibaly']; return !!(u && u.enabled && u.mustChange && adpLc(u.path) === adpLc('OU=Comptabilite,' + ADP_U)); }, why: 'Compte actif, dans la bonne OU, et Ibrahim choisira son propre mot de passe à la première connexion : toi, tu ne le connaîtras plus.' },
     { t: 'Compléter la fiche', goal: '<p><code>Set-ADUser ibrahim.coulibaly -Department "Comptabilite" -Title "Comptable"</code></p>', hint: 'Set-ADUser ibrahim.coulibaly -Department "Comptabilite" -Title "Comptable"', check: (w) => !!(w.users['ibrahim.coulibaly'] && adpLc(w.users['ibrahim.coulibaly'].dept) === 'comptabilite'), why: 'Ces attributs servent aux filtres (-Filter \'Department -eq …\'), à l’annuaire de messagerie et aux audits.' },
-    { t: 'Vérifier', goal: '<p><code>Get-ADUser ibrahim.coulibaly -Properties Department, Title</code></p>', hint: 'Get-ADUser ibrahim.coulibaly -Properties Department, Title', check: (w, l) => adpKey(l, 'Get-ADUser') && !l.filtered, why: 'Sans -Properties, Department et Title n’apparaîtraient pas : Get-ADUser n’en renvoie qu’une poignée par défaut.' },
-    { t: 'Une collègue bloquée', goal: '<p>Le téléphone sonne : quelqu’un ne peut plus se connecter. Liste les comptes verrouillés :</p><p><code>Search-ADAccount -LockedOut</code></p>', hint: 'Search-ADAccount -LockedOut', check: (w, l) => adpKey(l, 'Search-ADAccount') && /lockedout/.test(l.search || ''), why: 'ali.traore est verrouillé. Avant de débloquer, on s’assure que c’est bien lui au téléphone, et que les échecs venaient de son poste.' },
+    { t: 'Vérifier', goal: '<p><code>Get-ADUser ibrahim.coulibaly -Properties Department, Title</code></p>', hint: 'Get-ADUser ibrahim.coulibaly -Properties Department, Title', check: (w, l) => adpKey(l, 'Get-ADUser') && l.ok !== false && (!l.filtered || /ibrahim/i.test(l.line || '')), why: 'Sans -Properties, Department et Title n’apparaîtraient pas : Get-ADUser n’en renvoie qu’une poignée par défaut.' },
+    { t: 'Une collègue bloquée', goal: '<p>Le téléphone sonne : quelqu’un ne peut plus se connecter. Liste les comptes verrouillés :</p><p><code>Search-ADAccount -LockedOut</code></p>', hint: 'Search-ADAccount -LockedOut', check: (w, l) => (adpKey(l, 'Search-ADAccount') && /lockedout/.test(l.search || '')) || (adpKey(l, 'Get-ADUser') && l.ok !== false && /lockedout/i.test(l.line || '')), why: 'ali.traore est verrouillé. Avant de débloquer, on s’assure que c’est bien lui au téléphone, et que les échecs venaient de son poste.' },
     { t: 'Déverrouiller', goal: '<p>C’est bien lui, il s’est trompé de clavier. <code>Unlock-ADAccount ali.traore</code></p>', hint: 'Unlock-ADAccount ali.traore', check: (w) => !w.users['ali.traore'].locked, why: 'Le compte est débloqué ; son mot de passe n’a pas changé.' },
     { t: 'Mot de passe oublié', goal: '<p>Fatou a oublié le sien. Réinitialise-le, puis oblige-la à le changer :</p><p><code>Set-ADAccountPassword fatou.diallo -Reset</code> (saisis un mot de passe temporaire)<br><code>Set-ADUser fatou.diallo -ChangePasswordAtLogon $true</code></p>', hint: ['Set-ADAccountPassword fatou.diallo -Reset', 'Set-ADUser fatou.diallo -ChangePasswordAtLogon $true'], check: (w) => (w.users['fatou.diallo'].reset || 0) >= 1 && w.users['fatou.diallo'].mustChange, why: 'Le mot de passe temporaire ne sert qu’une fois : Fatou en choisit un nouveau, que personne d’autre ne connaît.' },
     { t: 'Un départ', goal: '<p>Koffi quitte l’entreprise ce soir. Bloque son accès sans rien perdre : <code>Disable-ADAccount koffi.nguessan</code></p>', hint: 'Disable-ADAccount koffi.nguessan', check: (w) => !w.users['koffi.nguessan'].enabled, why: 'Désactivé : plus aucune connexion possible, mais ses fichiers, groupes et historique restent disponibles.' },
@@ -12728,7 +13224,7 @@ scen({
     { t: 'Plus strict pour les admins', goal: '<p>La politique du domaine plafonne à 14 caractères. Pour les administrateurs, crée un PSO à 16 :</p><p><code>New-ADFineGrainedPasswordPolicy -Name PSO_Admins -Precedence 10 -MinPasswordLength 16 -ComplexityEnabled $true -LockoutThreshold 5</code></p>', hint: 'New-ADFineGrainedPasswordPolicy -Name PSO_Admins -Precedence 10 -MinPasswordLength 16 -ComplexityEnabled $true -LockoutThreshold 5', check: (w) => !!(w.psos.pso_admins && w.psos.pso_admins.MinPasswordLength >= 15), why: 'Le PSO existe, mais ne s’applique encore à personne.' },
     { t: 'L’appliquer au groupe', goal: '<p><code>Add-ADFineGrainedPasswordPolicySubject -Identity PSO_Admins -Subjects G_Admins</code></p>', hint: 'Add-ADFineGrainedPasswordPolicySubject -Identity PSO_Admins -Subjects G_Admins', check: (w) => !!(w.psos.pso_admins && w.psos.pso_admins.subjects.includes('G_Admins')), why: 'On applique un PSO à un groupe, pas compte par compte : un nouvel admin ajouté à G_Admins en hérite.' },
     { t: 'Quelle politique pour qui ?', goal: '<p><code>Get-ADUserResultantPasswordPolicy adm.trame</code></p>', hint: 'Get-ADUserResultantPasswordPolicy adm.trame', check: (w, l) => adpKey(l, 'Get-ADUserResultantPasswordPolicy') && l.resultant === 'adm.trame', why: 'adm.trame relève de PSO_Admins (16 caractères). Un comptable, lui, suit la politique du domaine.' },
-    { t: 'Les mots de passe éternels', goal: '<p><code>Search-ADAccount -PasswordNeverExpires -UsersOnly</code></p>', hint: 'Search-ADAccount -PasswordNeverExpires -UsersOnly', check: (w, l) => adpKey(l, 'Search-ADAccount') && /passwordneverexpires/.test(l.search || ''), why: 'yao.kouassi (un commercial !) et svc_scan, dont le mot de passe n’a pas changé depuis 900 jours.' },
+    { t: 'Les mots de passe éternels', goal: '<p><code>Search-ADAccount -PasswordNeverExpires -UsersOnly</code></p>', hint: 'Search-ADAccount -PasswordNeverExpires -UsersOnly', check: (w, l) => (adpKey(l, 'Search-ADAccount') && /passwordneverexpires/.test(l.search || '')) || (adpKey(l, 'Get-ADUser') && l.ok !== false && /passwordneverexpires/i.test(l.line || '')), why: 'yao.kouassi (un commercial !) et svc_scan, dont le mot de passe n’a pas changé depuis 900 jours.' },
     { t: 'Corriger l’exception', goal: '<p>Rien ne justifie l’exception d’un commercial :</p><p><code>Set-ADUser yao.kouassi -PasswordNeverExpires $false</code></p>', hint: 'Set-ADUser yao.kouassi -PasswordNeverExpires $false', check: (w) => !w.users['yao.kouassi'].pne, why: 'Pour svc_scan, la vraie solution est différente : un compte de service géré (gMSA) quand l’appareil le permet, sinon un mot de passe très long, changé selon une procédure.' },
   ],
   outro: '12 caractères pour tous, 16 pour les admins, verrouillage raisonnable, et la chasse aux exceptions : la politique de mot de passe d’un domaine bien tenu.',
@@ -12769,11 +13265,11 @@ scen({
     w.groups['Domain Admins'].members.push('svc_backup');
   } }),
   steps: [
-    { t: 'Les comptes oubliés', goal: '<p>Comptes sans connexion depuis 90 jours :</p><p><code>Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly</code></p>', hint: 'Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly', check: (w, l) => adpKey(l, 'Search-ADAccount') && (l.inactiveDays || 0) >= 30, why: 'Un ancien commercial, un ancien stagiaire, un compte de test : des portes ouvertes que personne ne surveille.' },
+    { t: 'Les comptes oubliés', goal: '<p>Comptes sans connexion depuis 90 jours :</p><p><code>Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly</code></p>', hint: 'Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly', check: (w, l) => (adpKey(l, 'Search-ADAccount') && ((l.inactiveDays || 0) >= 30 || /accountinactive/i.test(l.line || ''))) || (adpKey(l, 'Get-ADUser') && l.ok !== false && /lastlogon/i.test(l.line || '')), why: 'Un ancien commercial, un ancien stagiaire, un compte de test : des portes ouvertes que personne ne surveille.' },
     { t: 'Les désactiver d’un coup', goal: '<p>Envoie le résultat de la recherche à Disable-ADAccount :</p><p><code>Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly | Disable-ADAccount</code></p>', hint: 'Search-ADAccount -AccountInactive -TimeSpan 90.00:00:00 -UsersOnly | Disable-ADAccount', check: (w) => ['jean.konan', 'ancien.stagiaire', 'test.user'].every((s) => !w.users[s].enabled), why: 'Désactivés, pas supprimés : si l’un d’eux servait encore à quelque chose, on le saura vite, et on pourra revenir en arrière.' },
-    { t: 'Sans mot de passe ?', goal: '<p><code>Get-ADUser -Filter \'PasswordNotRequired -eq $true\'</code></p>', hint: 'Get-ADUser -Filter \'PasswordNotRequired -eq $true\'', check: (w, l) => adpKey(l, 'Get-ADUser') && l.filtered && /passwordnotrequired/i.test(String(l.p && l.p.named.filter)), why: 'test.user peut avoir un mot de passe vide : le drapeau PASSWD_NOTREQD contourne la politique.' },
+    { t: 'Sans mot de passe ?', goal: '<p><code>Get-ADUser -Filter \'PasswordNotRequired -eq $true\'</code></p>', hint: 'Get-ADUser -Filter \'PasswordNotRequired -eq $true\'', check: (w, l) => adpKey(l, 'Get-ADUser') && l.ok !== false && /passwordnotrequired/i.test(l.line || ''), why: 'test.user peut avoir un mot de passe vide : le drapeau PASSWD_NOTREQD contourne la politique.' },
     { t: 'Corriger le drapeau', goal: '<p><code>Set-ADUser test.user -PasswordNotRequired $false</code></p>', hint: 'Set-ADUser test.user -PasswordNotRequired $false', check: (w) => !w.users['test.user'].pnr, why: 'Le compte devra respecter la politique à son prochain changement de mot de passe (et il est désactivé de toute façon).' },
-    { t: 'Les comptes de service', goal: '<p>Liste les comptes utilisateurs qui portent un SPN, avec l’âge de leur mot de passe :</p><p><code>Get-ADUser -Filter \'ServicePrincipalName -like "*"\' -Properties ServicePrincipalName, PasswordLastSet</code></p>', hint: 'Get-ADUser -Filter \'ServicePrincipalName -like "*"\' -Properties ServicePrincipalName, PasswordLastSet', check: (w, l) => adpKey(l, 'Get-ADUser') && /serviceprincipalname/i.test(String(l.p && l.p.named.filter)), why: 'svc_backup : un SPN, un mot de passe vieux de quatre ans qui n’expire jamais. Tout utilisateur peut obtenir un ticket chiffré avec ce mot de passe et tenter de le deviner hors ligne.' },
+    { t: 'Les comptes de service', goal: '<p>Liste les comptes utilisateurs qui portent un SPN, avec l’âge de leur mot de passe :</p><p><code>Get-ADUser -Filter \'ServicePrincipalName -like "*"\' -Properties ServicePrincipalName, PasswordLastSet</code></p>', hint: 'Get-ADUser -Filter \'ServicePrincipalName -like "*"\' -Properties ServicePrincipalName, PasswordLastSet', check: (w, l) => adpKey(l, 'Get-ADUser') && l.ok !== false && /serviceprincipalname/i.test(l.line || ''), why: 'svc_backup : un SPN, un mot de passe vieux de quatre ans qui n’expire jamais. Tout utilisateur peut obtenir un ticket chiffré avec ce mot de passe et tenter de le deviner hors ligne.' },
     { t: 'Qui est vraiment admin ?', goal: '<p><code>Get-ADGroupMember "Domain Admins" -Recursive</code></p>', hint: 'Get-ADGroupMember "Domain Admins" -Recursive', check: (w, l) => adpKey(l, 'Get-ADGroupMember') && l.group === 'Domain Admins', why: 'svc_backup est Domain Admins ! Si son mot de passe tombe, tout le domaine tombe. Une sauvegarde n’a besoin que de droits sur ce qu’elle sauvegarde.' },
     { t: 'Retirer le compte de service', goal: '<p><code>Remove-ADGroupMember -Identity "Domain Admins" -Members svc_backup -Confirm:$false</code></p>', hint: 'Remove-ADGroupMember -Identity "Domain Admins" -Members svc_backup -Confirm:$false', check: (w) => !adpDA(w, 'svc_backup'), why: 'Étape suivante, hors labo : le remplacer par un gMSA (mot de passe de 120 caractères, changé automatiquement) avec les seuls droits de sauvegarde.' },
     { t: 'Protéger l’administrateur', goal: '<p>Le compte adm.trame est Domain Admins : protège-le.</p><p><code>Add-ADGroupMember -Identity "Protected Users" -Members adm.trame</code><br><code>Set-ADUser adm.trame -AccountNotDelegated $true</code></p>', hint: ['Add-ADGroupMember -Identity "Protected Users" -Members adm.trame', 'Set-ADUser adm.trame -AccountNotDelegated $true'], check: (w) => adpMember(w, 'Protected Users', 'adm.trame') && w.users['adm.trame'].notDeleg, why: 'Plus de NTLM ni d’identifiants en cache pour ce compte, et aucun service ne peut emprunter son identité.' },
@@ -14204,7 +14700,7 @@ finalOf('lx-network', {
   goals: [
     { t: 'eth1 a l’adresse 172.16.20.8/24 et est active.', check: (w) => w.net.ifs.eth1.up && w.net.ifs.eth1.addrs.includes('172.16.20.8/24') },
     { t: 'Le réseau 10.50.0.0/16 est routé via 172.16.20.1.', check: (w) => (w.net.routes || []).some((r) => r.net === '10.50.0.0/16' && r.via === '172.16.20.1') },
-    { t: 'L’adresse d’eth1 est écrite dans /etc/netplan/01-netcfg.yaml.', check: (w) => /eth1:[\s\S]*172\.16\.20\.8\/24/.test(lxRead(w, '/etc/netplan/01-netcfg.yaml') || '') },
+    { t: 'L’adresse d’eth1 est écrite dans la configuration Netplan (/etc/netplan).', check: (w) => lxNetplanHas(w, 'eth1', '172.16.20.8/24') },
   ],
 });
 
@@ -14212,12 +14708,12 @@ finalOf('lx-ssh', {
   brief: '<p>Ce serveur web doit être durci :</p><ul><li>tu te connecteras avec une <b>clé ed25519</b> : génère-la ;</li><li>la configuration <b>effectivement appliquée</b> par le serveur SSH doit interdire root et les mots de passe, limiter à <b>3</b> le nombre d’essais, et n’autoriser que le compte <b>etudiant</b> ;</li><li>pare-feu actif : refus par défaut en entrée, SSH autorisé (limité), et le site web en <b>HTTP et HTTPS</b> ouvert.</li></ul><p>Attention, la configuration SSH actuelle contient déjà des lignes en double.</p>',
   setup: () => lxWorld({ setup: (w) => { lxNode(w, '/etc/ssh/sshd_config').d = '# Configuration du serveur SSH\nInclude /etc/ssh/sshd_config.d/*.conf\nPermitRootLogin yes\nPort 22\nPasswordAuthentication yes\nPubkeyAuthentication yes\nX11Forwarding yes\n# Ajouté par l’ancien administrateur\nPermitRootLogin no\n'; } }),
   goals: [
-    { t: 'Une paire de clés ed25519 existe pour etudiant.', check: (w) => !!lxNode(w, '/home/etudiant/.ssh/id_ed25519') && !!lxNode(w, '/home/etudiant/.ssh/id_ed25519.pub') },
+    { t: 'Une paire de clés ed25519 existe pour etudiant.', check: (w) => lxUserKeys(w, 'etudiant').some((k) => k.type === 'ssh-ed25519') },
     { t: 'Configuration appliquée : root interdit, mots de passe interdits.', check: (w) => !!w.sshApplied && w.sshApplied.PermitRootLogin === 'no' && w.sshApplied.PasswordAuthentication === 'no' },
     { t: 'Configuration appliquée : 3 essais maximum, seul etudiant est autorisé.', check: (w) => !!w.sshApplied && +w.sshApplied.MaxAuthTries <= 3 && w.sshApplied.AllowUsers === 'etudiant' },
-    { t: 'Le pare-feu est actif et refuse par défaut le trafic entrant.', check: (w) => w.ufw.on && w.ufw.defIn === 'deny' },
-    { t: 'SSH est autorisé avec limitation des tentatives.', check: (w) => w.ufw.rules.some((r) => r.act === 'limit' && ufwSsh(r)) },
-    { t: 'HTTP (80) et HTTPS (443) sont autorisés.', check: (w) => [80, 443].every((p) => w.ufw.rules.some((r) => r.act === 'allow' && new RegExp('^(' + p + '(/tcp)?|' + (p === 80 ? 'http' : 'https') + ')$', 'i').test(r.to))) },
+    { t: 'Le pare-feu est actif et refuse par défaut le trafic entrant.', check: (w) => w.ufw.on && ['deny', 'reject'].includes(w.ufw.defIn) },
+    { t: 'SSH est autorisé avec limitation des tentatives.', check: (w) => w.ufw.rules.some((r) => r.act === 'limit' && ufwSsh(r, w)) },
+    { t: 'HTTP (80) et HTTPS (443) sont autorisés.', check: (w) => [80, 443].every((p) => w.ufw.rules.some((r) => r.act === 'allow' && r.dir !== 'out' && (r.port != null ? (r.proto == null || r.proto === 'tcp') && ufwPortHas(r.port, p) : new RegExp('^(' + p + '(/tcp)?|' + (p === 80 ? 'http' : 'https') + ')$', 'i').test(r.to)))) },
   ],
 });
 
@@ -14246,10 +14742,10 @@ finalOf('lx-script', {
   brief: '<p>Automatise la sauvegarde de la configuration du serveur :</p><ul><li>un script <code>~/save-etc.sh</code> qui crée une archive compressée de <code>/etc</code> nommée <code>etc-AAAA-MM-JJ.tar.gz</code> (date du jour) dans <code>~/sauvegardes</code> ;</li><li>le script est exécutable et a déjà tourné une fois (l’archive du jour existe) ;</li><li>il est planifié chaque <b>dimanche à 23 h 45</b>.</li></ul>',
   setup: () => lxWorld(),
   goals: [
-    { t: 'Le script ~/save-etc.sh archive /etc avec tar en compressant, avec la date dans le nom.', check: (w) => { const t = lxRead(w, '/home/etudiant/save-etc.sh') || ''; return /tar\s+-[a-z]*c[a-z]*z[a-z]*f|tar\s+-[a-z]*z[a-z]*c[a-z]*f/.test(t) && /\/etc\b/.test(t) && /date|\$\{?\w+\}?/.test(t); } },
+    { t: 'Le script ~/save-etc.sh archive /etc avec tar en compressant, avec la date dans le nom.', check: (w) => { const t = lxRead(w, '/home/etudiant/save-etc.sh') || ''; return /tar\s+(-?[a-zA-Z]*(c[a-zA-Z]*z|z[a-zA-Z]*c)[a-zA-Z]*f|.*--gzip|.*-z\b)/.test(t) && /\/etc\b/.test(t) && /date|\$\{?\w+\}?/.test(t); } },
     { t: 'Le script est exécutable.', check: (w) => !!((lxNode(w, '/home/etudiant/save-etc.sh') || {}).mode & 0o100) },
     { t: 'L’archive du jour existe dans ~/sauvegardes.', check: (w) => !!lxNode(w, '/home/etudiant/sauvegardes/etc-' + localISO() + '.tar.gz') },
-    { t: 'Il est planifié le dimanche à 23 h 45.', check: (w) => /^\s*45\s+23\s+\*\s+\*\s+(0|7|sun)\s+(\/home\/etudiant|~)\/save-etc\.sh\s*$/im.test(w.cron.etudiant || '') },
+    { t: 'Il est planifié le dimanche à 23 h 45.', check: (w) => lxCronHas(w, /^\s*45\s+23\s+\*\s+\*\s+(0|7|sun|dim)\s+(?:\S*bash\s+|\S*sh\s+)?(\/home\/etudiant|~|\$HOME)\/save-etc\.sh\b/im) },
   ],
 });
 
