@@ -3,7 +3,7 @@
   "short_name": "Trame",
   "description": "Parcours, labos pratiques, examens et défis : réseaux, Cisco, Linux, Active Directory, sécurité, cybersécurité, Python et cloud.",
   "lang": "fr",
-  "id": "./",
+  "id": "/Trame/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
