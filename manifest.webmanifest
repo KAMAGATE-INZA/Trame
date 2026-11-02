@@ -1,0 +1,20 @@
+{
+  "name": "Trame — réseaux, systèmes et cybersécurité",
+  "short_name": "Trame",
+  "description": "Parcours, labos pratiques, examens et défis : réseaux, Cisco, Linux, Active Directory, sécurité, cybersécurité, Python et cloud.",
+  "lang": "fr",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0A1017",
+  "theme_color": "#0A1017",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
