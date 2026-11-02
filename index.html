@@ -15387,7 +15387,10 @@ const Install = {
   },
   hidden() { return Date.now() - (LS.get('trame.installHide', 0) || 0) < 30 * DAY; },
 };
-window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); Install.evt = e; if (BOOTED) requestRender(); });
+/* On NE bloque PAS la proposition native du navigateur (pas de preventDefault) : Chrome, Edge ou Samsung Internet
+   proposent eux-mêmes l’installation, discrètement, comme pour Focale. On garde seulement l’évènement pour le
+   bouton « Installer Trame » des Réglages, utile si cette proposition a été ignorée. */
+window.addEventListener('beforeinstallprompt', (e) => { Install.evt = e; if (BOOTED && UI.view === 'reglages') requestRender(); });
 window.addEventListener('appinstalled', () => { Install.evt = null; LS.set('trame.installHide', Date.now()); if (BOOTED) { toast('Trame est installée : retrouve-la sur ton écran d’accueil.'); requestRender(); } });
 
 function installSteps(env) {
@@ -15437,7 +15440,10 @@ function installSettingsCard() {
 function installBanner() {
   if (IN_CLAUDE || Install.standalone() || Install.hidden()) return '';
   const env = Install.env();
-  if (!env.web || !(env.mobile || Install.evt)) return '';
+  /* Seulement là où le navigateur ne propose rien de lui-même : iPhone/iPad (Safari n’a pas d’invite
+     d’installation), navigateurs intégrés aux applis, Firefox. Ailleurs, l’invite native suffit. */
+  const native = !env.ios && !env.inapp && ['chrome', 'edge', 'samsung', 'opera'].includes(env.browser);
+  if (!env.web || !env.mobile || native) return '';
   return `<section class="alert alert-info inst-banner">${ic('phone')}<div class="alert-text"><b>Installe Trame sur ton écran d’accueil.</b><p class="small" style="margin-top:2px">${env.inapp ? 'Ouvre d’abord ce lien dans ' + (env.ios ? 'Safari' : 'Chrome') + ' : le navigateur intégré à ' + (env.app ? esc(env.app) : 'cette appli') + ' ne permet pas l’installation.' : 'Elle s’ouvre en plein écran, comme une vraie application, même hors ligne.'}</p></div><div class="row" style="gap:6px"><button type="button" class="btn btn-primary" data-act="app.install">${Install.evt ? ic('download') + 'Installer' : 'Comment faire'}</button><button type="button" class="icon-btn" data-act="app.installHide" aria-label="Masquer">${ic('x')}</button></div></section>`;
 }
 
