@@ -680,6 +680,13 @@ table.sg-t td{padding:6px 10px;vertical-align:middle}
 .simf-list li.ko{border-color:var(--crit);background:var(--crit-soft)}
 .simf-list .inp{width:100%;max-width:420px}
 .simf-list .ex-code{margin:6px 0}
+
+/* Installer Trame */
+.inst-steps { margin: 10px 0 8px; padding-left: 22px; display: grid; gap: 8px; }
+.inst-steps li { padding-left: 2px; line-height: 1.5; }
+.inst-url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 4px; }
+.inst-url code { flex: 1 1 200px; min-width: 0; word-break: break-all; font-size: 12.5px; padding: 6px 8px; border-radius: 8px; background: var(--sunken); }
+#install-card .row { margin-top: 10px; }
 </style>
 
 </head>
@@ -1147,6 +1154,7 @@ const ICONS = {
   cloud: '<path d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.6 9.1 4.75 4.75 0 0 0 7 18.5Z"/>',
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c2.6-.3 4.8 1.2 5.5 4"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5M12 2.5V5"/>',
+  phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/>',
   router: '<rect x="3" y="12.5" width="18" height="7" rx="2"/><path d="M7 16h.01M10.5 16h.01M8 12.5 6.5 6M16 12.5 17.5 6"/><path d="M14.5 16h3"/>',
   server: '<rect x="4" y="3.5" width="16" height="7" rx="1.6"/><rect x="4" y="13.5" width="16" height="7" rx="1.6"/><path d="M8 7h.01M8 17h.01M12 7h5M12 17h5"/>',
 };
@@ -6795,6 +6803,7 @@ function viewHome() {
   const T = TRACKS[nextL.track];
   return `<div class="page">
     ${standaloneBanners()}
+    ${installBanner()}
     <header class="page-head"><div class="ph-text">
       <p class="eyebrow">Trame · réseaux, systèmes et cybersécurité</p>
       <h1>${greet}${name ? ', ' + esc(name) : ''}.</h1>
@@ -7136,7 +7145,16 @@ const LAB_GROUPS = [
   { id: 'cloud', title: 'Cloud', icon: 'cloud', track: 'cl', lede: 'Politiques d’accès, groupes de sécurité et audits de configuration, avec la logique des vrais fournisseurs.' },
   { id: 'sim', title: 'Simulations', icon: 'zap', track: 'net', lede: 'De petites expériences visuelles pour comprendre une notion en quelques minutes.' },
 ];
-function registerLab(def) { if (LAB_BY_ID[def.id]) return; LABS.push(def); LAB_BY_ID[def.id] = def; }
+/* Groupe d’affichage d’un labo : son groupe déclaré s’il existe, sinon celui de son parcours.
+   Un labo dont le groupe est inconnu n’apparaîtrait dans aucune section (compteur à 0/0). */
+function labGroupFor(def) {
+  const known = (g) => g && LAB_GROUPS.some((x) => x.id === g);
+  if (known(def.group)) return def.group;
+  if (known(def.kind)) return def.kind;
+  const byTrack = LAB_GROUPS.find((x) => x.track === def.track && x.id !== 'missions' && x.id !== 'sim');
+  return byTrack ? byTrack.id : (def.group || def.kind);
+}
+function registerLab(def) { if (LAB_BY_ID[def.id]) return; def.group = labGroupFor(def); LABS.push(def); LAB_BY_ID[def.id] = def; }
 SIM_LABS.forEach((l) => registerLab(Object.assign({ kind: 'sim', group: 'sim', level: 'Découverte' }, l)));
 
 function labDone(id) { const r = byId('labs', id); return !!(r && r.done); }
@@ -12630,7 +12648,7 @@ const adpDA = (w, sam) => !!(w.groups['Domain Admins'] && adpMembers(w, w.groups
 
 /* 1. Structurer l’annuaire */
 scen({
-  id: 'ad-ou', kind: 'adps', track: 'ad', level: 'Débutant', icon: 'users', title: 'Structurer l’annuaire en unités d’organisation',
+  id: 'ad-ou', kind: 'adps', group: 'ad', track: 'ad', level: 'Débutant', icon: 'users', title: 'Structurer l’annuaire en unités d’organisation',
   intro: 'Le domaine trame.local vient d’être installé : tous les comptes et postes sont dans les conteneurs par défaut, où aucune GPO ne peut s’appliquer. Crée une structure d’OU claire et range-y les objets.',
   setup: () => adpWorld(),
   steps: [
@@ -12650,7 +12668,7 @@ scen({
 
 /* 2. Cycle de vie des comptes */
 scen({
-  id: 'ad-users', kind: 'adps', track: 'ad', level: 'Débutant', icon: 'users', title: 'Le cycle de vie d’un compte',
+  id: 'ad-users', kind: 'adps', group: 'ad', track: 'ad', level: 'Débutant', icon: 'users', title: 'Le cycle de vie d’un compte',
   intro: 'Une journée de support : un nouvel arrivant à créer, une collègue bloquée, un mot de passe oublié et un départ. Chaque situation a sa commande, et ses bons réflexes.',
   setup: () => adpWorld({ setup: (w) => { adpStd(w); w.users['ali.traore'].locked = true; adpEvent(w, 4740, { target: 'ali.traore', ws: 'PC-COMPTA02', ago: 12 }); } }),
   steps: [
@@ -12669,7 +12687,7 @@ scen({
 
 /* 3. Groupes et AGDLP */
 scen({
-  id: 'ad-groups', kind: 'adps', track: 'ad', level: 'Intermédiaire', icon: 'users', title: 'Groupes, partages et méthode AGDLP',
+  id: 'ad-groups', kind: 'adps', group: 'ad', track: 'ad', level: 'Intermédiaire', icon: 'users', title: 'Groupes, partages et méthode AGDLP',
   intro: 'Les comptables doivent pouvoir modifier les factures du partage « Factures » sur le serveur FS01. Mets en place les droits selon AGDLP, retire l’accès trop large, puis audite le groupe Domain Admins.',
   setup: () => adpWorld({ setup: (w) => {
     adpStd(w);
@@ -12695,7 +12713,7 @@ scen({
 
 /* 4. Politique de mot de passe */
 scen({
-  id: 'ad-policy', kind: 'adps', track: 'ad', level: 'Intermédiaire', icon: 'lock', title: 'Politique de mot de passe et verrouillage',
+  id: 'ad-policy', kind: 'adps', group: 'ad', track: 'ad', level: 'Intermédiaire', icon: 'lock', title: 'Politique de mot de passe et verrouillage',
   intro: 'Le domaine a gardé ses réglages d’installation : 7 caractères, aucun verrouillage. Mets la politique au niveau des recommandations actuelles, avec une exigence plus forte pour les administrateurs.',
   setup: () => adpWorld({ setup: (w) => {
     adpStd(w); adpMkGroup(w, 'G_Admins', 'Global', ADP_G, ['adm.trame'], { desc: 'Comptes d’administration' });
@@ -12718,7 +12736,7 @@ scen({
 
 /* 5. GPO */
 scen({
-  id: 'ad-gpo', kind: 'adps', track: 'ad', level: 'Intermédiaire', icon: 'layers', title: 'Créer, lier et dépanner une GPO',
+  id: 'ad-gpo', kind: 'adps', group: 'ad', track: 'ad', level: 'Intermédiaire', icon: 'layers', title: 'Créer, lier et dépanner une GPO',
   intro: 'La direction veut que les sessions se verrouillent après 10 minutes d’inactivité. Crée la GPO, applique-la, vérifie sur le poste d’Awa… et comprends pourquoi elle ne s’applique pas du premier coup.',
   setup: () => adpWorld({ setup: (w) => {
     adpStd(w); w.blocked[adpLc('OU=Comptabilite,' + ADP_U)] = true;
@@ -12740,7 +12758,7 @@ scen({
 
 /* 6. Audit d’hygiène */
 scen({
-  id: 'ad-audit', kind: 'adps', track: 'ad', level: 'Avancé', icon: 'search', title: 'Audit d’hygiène d’un domaine',
+  id: 'ad-audit', kind: 'adps', group: 'ad', track: 'ad', level: 'Avancé', icon: 'search', title: 'Audit d’hygiène d’un domaine',
   intro: 'Tu reprends l’administration d’un domaine laissé à l’abandon. Avant toute chose : un audit. Comptes oubliés, mots de passe non requis, comptes de service trop puissants, administrateurs exposés.',
   setup: () => adpWorld({ setup: (w) => {
     adpStd(w);
@@ -12766,7 +12784,7 @@ scen({
 
 /* 7. Incident */
 scen({
-  id: 'ad-incident', kind: 'adps', track: 'ad', level: 'Avancé', icon: 'alert', title: 'Réagir à un compte compromis',
+  id: 'ad-incident', kind: 'adps', group: 'ad', track: 'ad', level: 'Avancé', icon: 'alert', title: 'Réagir à un compte compromis',
   intro: 'Alerte du SOC à 6 h 40 : une rafale d’échecs de connexion sur un compte d’administration, depuis une adresse externe. Enquête dans les journaux, contiens l’attaque, retire ce que l’attaquant a laissé et assainis le domaine.',
   setup: () => adpWorld({ setup: (w) => {
     adpStd(w);
@@ -13939,7 +13957,7 @@ scen({
 /* ---------- Index des labos : terminaux, Python, Cloud ---------- */
 (function () {
   const plain = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ');
-  Object.values(SCEN).forEach((sc) => registerLab({ id: sc.id, kind: sc.kind, group: sc.group || sc.kind, track: sc.track, level: sc.level, title: sc.title, desc: plain(sc.intro), icon: sc.icon || (sc.kind === 'ios' ? 'router' : 'terminal'), steps: sc.steps.length, stepWord: sc.stepWord || 'étapes' }));
+  Object.values(SCEN).forEach((sc) => registerLab({ id: sc.id, kind: sc.kind, group: labGroupFor(sc), track: sc.track, level: sc.level, title: sc.title, desc: plain(sc.intro), icon: sc.icon || (sc.kind === 'ios' ? 'router' : 'terminal'), steps: sc.steps.length, stepWord: sc.stepWord || 'étapes' }));
   PYLABS.forEach((p) => registerLab({ id: p.id, kind: 'py', group: 'py', track: 'py', level: p.level, title: p.title, desc: plain(p.intro), icon: 'code', steps: p.ex.length, stepWord: 'exercices' }));
   CLOUD_LABS.forEach((c) => registerLab(Object.assign({ kind: 'cloud', group: 'cloud', track: 'cl' }, c)));
 })();
@@ -14839,6 +14857,108 @@ examBank('cl', [
   { s: 'iac', q: 'Que fait « terraform plan » ?', opts: ['Il applique les changements', 'Il montre ce qui sera créé, modifié ou détruit, sans rien changer', 'Il supprime l’infrastructure', 'Il chiffre l’état'], a: 1, why: 'On relit toujours le plan avant terraform apply : une destruction inattendue s’y voit.' },
   { s: 'iac', q: 'Pourquoi le fichier d’état Terraform (terraform.tfstate) doit-il être protégé ?', opts: ['Il est très volumineux', 'Il peut contenir des valeurs sensibles (mots de passe, clés) en clair', 'Il contient le code source', 'Il est inutile'], a: 1, why: 'On le stocke dans un backend distant chiffré, à l’accès restreint, jamais dans Git.' },
 ]);
+/* =====================================================================
+   INSTALLER TRAME SUR L’ÉCRAN D’ACCUEIL
+   - Chrome, Edge, Samsung Internet (Android, ordinateur) : vrai bouton « Installer »
+     grâce à l’évènement beforeinstallprompt.
+   - iPhone / iPad : pas d’API d’installation, on guide pas à pas (Partager → Sur l’écran d’accueil).
+   - Navigateurs intégrés (WhatsApp, Facebook, Instagram, GitHub…) : ils ne savent pas installer
+     d’application, on explique comment ouvrir le lien dans le vrai navigateur.
+   ===================================================================== */
+const Install = {
+  evt: null,
+  standalone() {
+    try {
+      if (navigator.standalone === true) return true;
+      return ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay'].some((m) => matchMedia(`(display-mode: ${m})`).matches);
+    } catch (e) { return false; }
+  },
+  env() {
+    const ua = navigator.userAgent || '';
+    const ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+    const android = /Android/i.test(ua);
+    const named = (ua.match(/(FBAN|FBAV|FB_IAB|FBIOS|Instagram|WhatsApp|Snapchat|musical_ly|TikTok|BytedanceWebview|Twitter|LinkedInApp|Line\/|MicroMessenger|GSA\/|GitHub)/i) || [])[1] || '';
+    // Sur iPhone, une vue web intégrée n’a pas le jeton « Safari/ » ; sur Android, elle porte « ; wv) ».
+    const inapp = !!named || (ios && !/Safari\//.test(ua)) || (android && /; wv\)/.test(ua));
+    const app = /WhatsApp/i.test(named) ? 'WhatsApp' : /Instagram/i.test(named) ? 'Instagram' : /FB/i.test(named) ? 'Facebook' : /TikTok|musical|Bytedance/i.test(named) ? 'TikTok'
+      : /Snapchat/i.test(named) ? 'Snapchat' : /LinkedIn/i.test(named) ? 'LinkedIn' : /Twitter/i.test(named) ? 'X' : /GSA/i.test(named) ? 'Google' : /GitHub/i.test(named) ? 'GitHub' : '';
+    const browser = ios ? (/CriOS/.test(ua) ? 'chrome' : /FxiOS/.test(ua) ? 'firefox' : /EdgiOS/.test(ua) ? 'edge' : 'safari')
+      : /SamsungBrowser/.test(ua) ? 'samsung' : /Firefox\//.test(ua) ? 'firefox' : /OPR\/|Opera/.test(ua) ? 'opera' : /Edg\//.test(ua) ? 'edge' : /Chrome\//.test(ua) ? 'chrome' : /Safari\//.test(ua) ? 'safari' : 'other';
+    const mobile = ios || android || /Mobi/i.test(ua);
+    // L’installation n’est possible que depuis la version publiée (https) ou en local (localhost).
+    const web = !IN_CLAUDE && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') && !!document.querySelector('link[rel="manifest"]');
+    return { ios, android, inapp, app, browser, mobile, web };
+  },
+  hidden() { return Date.now() - (LS.get('trame.installHide', 0) || 0) < 30 * DAY; },
+};
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); Install.evt = e; if (BOOTED) requestRender(); });
+window.addEventListener('appinstalled', () => { Install.evt = null; LS.set('trame.installHide', Date.now()); if (BOOTED) { toast('Trame est installée : retrouve-la sur ton écran d’accueil.'); requestRender(); } });
+
+function installSteps(env) {
+  const li = (a) => `<ol class="inst-steps">${a.map((x) => `<li>${x}</li>`).join('')}</ol>`;
+  const url = location.href.split('#')[0];
+  if (env.inapp) {
+    return `<p>Tu as ouvert Trame dans le navigateur intégré${env.app ? ' de ' + esc(env.app) : ' d’une autre application'}. Il ne sait pas installer d’application.</p>
+      ${li([env.ios ? 'Touche le menu (<b>•••</b> ou l’icône boussole) et choisis <b>Ouvrir dans Safari</b>.' : 'Touche le menu <b>⋮</b> et choisis <b>Ouvrir dans Chrome</b> (ou « Ouvrir dans le navigateur »).',
+        'Si l’option n’existe pas, copie l’adresse ci-dessous et colle-la dans ' + (env.ios ? 'Safari' : 'Chrome') + '.',
+        'Une fois dans ' + (env.ios ? 'Safari' : 'Chrome') + ', reviens dans Réglages → Installer Trame.'])}
+      <div class="inst-url"><code>${esc(url)}</code><button type="button" class="btn btn-sm" data-act="app.copyurl">${ic('copy')}Copier</button></div>`;
+  }
+  if (env.ios) {
+    const tip = `<p class="small muted">L’appli installée garde ses données à part de ${env.browser === 'safari' ? 'Safari' : 'ton navigateur'} : à la première ouverture, active la synchronisation (Réglages → Synchronisation entre appareils) avec ta phrase secrète pour retrouver ta progression.</p>`;
+    if (env.browser === 'safari') {
+      return `${li(['Touche <b>•••</b> à droite de la barre d’adresse, puis <b>Partager</b>. Sur les versions plus anciennes d’iOS, touche directement le bouton Partager (le carré avec une flèche vers le haut).',
+        'Fais défiler la liste et touche <b>Sur l’écran d’accueil</b>. Si tu ne la vois pas, touche <b>Plus</b> en bas de la liste.',
+        'Si une option pour l’ouvrir comme app web apparaît, laisse-la activée, puis touche <b>Ajouter</b>.'])}${tip}`;
+    }
+    return `${li(['Touche le bouton <b>Partager</b> (dans la barre d’adresse ou dans le menu).',
+      'Choisis <b>Sur l’écran d’accueil</b> (ou « Ajouter à l’écran d’accueil »), puis <b>Ajouter</b>.',
+      'Si l’option n’apparaît pas, ouvre la page dans <b>Safari</b> : c’est le plus fiable sur iPhone.'])}${tip}`;
+  }
+  if (env.android || env.mobile) {
+    if (env.browser === 'samsung') return li(['Touche le menu <b>≡</b> en bas de l’écran.', 'Choisis <b>Ajouter la page à</b>, puis <b>Écran d’accueil</b>.', 'Confirme avec <b>Ajouter</b>.']);
+    if (env.browser === 'firefox') return li(['Touche le menu <b>⋮</b>.', 'Choisis <b>Installer</b> (ou « Ajouter à l’écran d’accueil »).', 'Confirme.']);
+    return li(['Touche le menu <b>⋮</b> en haut à droite de Chrome.', 'Choisis <b>Installer l’application</b> ou <b>Ajouter à l’écran d’accueil</b>.', 'Si on te propose « Installer » ou « Créer un raccourci », choisis <b>Installer</b>, puis confirme.',
+      'L’option n’apparaît pas ? Recharge la page une fois et attends quelques secondes.']);
+  }
+  if (env.browser === 'safari') return li(['Dans la barre de menus de Safari, ouvre <b>Fichier</b>.', 'Choisis <b>Ajouter au Dock</b>, puis <b>Ajouter</b>.']);
+  return li(['Clique sur l’icône d’installation à droite de la barre d’adresse (un écran avec une flèche).', 'Ou ouvre le menu <b>⋮</b> du navigateur et cherche <b>Installer Trame</b> (dans Chrome : « Caster, enregistrer et partager »).']);
+}
+
+/* Carte des Réglages */
+function installSettingsCard() {
+  if (IN_CLAUDE) return '';
+  const env = Install.env();
+  let body;
+  if (Install.standalone()) body = `<p class="small">${ic('check')} Tu utilises Trame comme application installée.</p>${env.ios && !Sync.on() ? '<p class="small muted">Sur iPhone, l’appli installée a ses propres données, séparées de Safari. Active la synchronisation ci-dessous avec ta phrase secrète pour retrouver ta progression.</p>' : ''}`;
+  else if (!env.web) body = `<p class="small muted">L’installation se fait depuis la version publiée en ligne (adresse en https), par exemple sur GitHub Pages. Ouvre cette adresse sur ton téléphone pour installer Trame.</p>`;
+  else if (Install.evt) body = `<p class="small muted">Trame s’ouvre alors comme une vraie application : son icône sur l’écran d’accueil, en plein écran, et elle fonctionne hors ligne.</p><div class="row"><button type="button" class="btn btn-primary" data-act="app.install">${ic('download')}Installer Trame</button></div>`;
+  else body = `<p class="small muted">Trame s’ouvre alors comme une vraie application : son icône sur l’écran d’accueil, en plein écran, et elle fonctionne hors ligne.</p>${installSteps(env)}`;
+  return `<section class="card" id="install-card"><h3 class="card-title">${ic('phone')}Installer Trame</h3>${body}</section>`;
+}
+
+/* Suggestion discrète sur l’accueil (téléphone, version publiée, pas encore installée) */
+function installBanner() {
+  if (IN_CLAUDE || Install.standalone() || Install.hidden()) return '';
+  const env = Install.env();
+  if (!env.web || !(env.mobile || Install.evt)) return '';
+  return `<section class="alert alert-info inst-banner">${ic('phone')}<div class="alert-text"><b>Installe Trame sur ton écran d’accueil.</b><p class="small" style="margin-top:2px">${env.inapp ? 'Ouvre d’abord ce lien dans ' + (env.ios ? 'Safari' : 'Chrome') + ' : le navigateur intégré à ' + (env.app ? esc(env.app) : 'cette appli') + ' ne permet pas l’installation.' : 'Elle s’ouvre en plein écran, comme une vraie application, même hors ligne.'}</p></div><div class="row" style="gap:6px"><button type="button" class="btn btn-primary" data-act="app.install">${Install.evt ? ic('download') + 'Installer' : 'Comment faire'}</button><button type="button" class="icon-btn" data-act="app.installHide" aria-label="Masquer">${ic('x')}</button></div></section>`;
+}
+
+ACT['app.install'] = async () => {
+  const e = Install.evt;
+  if (e) {
+    Install.evt = null;
+    try { await e.prompt(); const r = await e.userChoice; if (r && r.outcome === 'accepted') LS.set('trame.installHide', Date.now()); } catch (err) { /* le navigateur a refusé : on affiche le guide */ }
+    render(); return;
+  }
+  Modal.open(`${mHead('Installer Trame', 'Une icône sur ton écran d’accueil, en plein écran, même hors ligne.')}<div class="modal-body">${installSteps(Install.env())}</div><div class="modal-foot"><button type="button" class="btn btn-primary" data-act="modal.close">J’ai compris</button></div>`, { label: 'Installer Trame', noFocus: true });
+};
+ACT['app.installHide'] = () => { LS.set('trame.installHide', Date.now()); render(); toast('Suggestion masquée. Tu la retrouves dans Réglages → Installer Trame.'); };
+ACT['app.copyurl'] = async () => {
+  const url = location.href.split('#')[0];
+  try { await navigator.clipboard.writeText(url); toast('Adresse copiée.'); } catch (e) { toast(url, { ms: 9000 }); }
+};
 'use strict';
 /* =====================================================================
    TRAME — mémo (glossaire, ports, commandes), tuteur IA, réglages,
@@ -14951,6 +15071,7 @@ function viewSettings() {
         <div class="set-row"><div class="t"><b>Tout réinitialiser</b><span>Efface définitivement toute ta progression Trame.</span></div><button type="button" class="btn danger-text" data-act="data.reset">${ic('trash')}Réinitialiser</button></div>
       </section>
 
+      ${installSettingsCard()}
       ${appExportCard()}
       ${aiSettingsCard()}
       ${syncSettingsCard()}
